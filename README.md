@@ -418,8 +418,9 @@ with the same claim-based rules (see `src/worker/index.ts`):
   category, and the final reason are columns on the row (`retryCount`,
   `nextAttemptAt`, `errorCategory`, `failureReason`), never process memory.
   An exhausted job stops retrying and is marked `failed` with a sanitized
-  reason; retries and failures are also recorded in the audit log / status
-  history.
+  reason and a `deadLetteredAt` timestamp; a row left at the retry cap by a
+  process crash is picked up and dead-lettered rather than stranded. Retries
+  and failures are also recorded in the audit log / status history.
 
 Retry budgets are exponential with jitter and fully configurable via env vars
 (see `.env.example`):

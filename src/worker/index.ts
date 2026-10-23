@@ -149,6 +149,8 @@ interface SettlementJob {
   expiresAt: Date | null;
   retryCount: number;
   status: string;
+  /** Last sanitized failure, used when a restarted worker finds the budget spent. */
+  failureReason: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -314,6 +316,10 @@ async function failSettlement(params: {
       errorCategory: category,
       retryCount: attempt,
       nextAttemptAt: null,
+      // Durable dead-letter marker: the worker has stopped trying, whether the
+      // cause was permanent or the retry budget ran out. `status` also becomes
+      // "failed"; the timestamp makes exhausted jobs directly queryable.
+      deadLetteredAt: new Date(),
     },
   });
 
@@ -480,6 +486,28 @@ export async function processSettlementJob(
   ctx: CorrelationContext
 ): Promise<void> {
   const jobLog = loggerWithContext(log, ctx);
+  const policy = SETTLEMENT_RETRY_POLICY;
+
+  // A process can die after recordAttemptStarted() commits the final attempt
+  // but before the submission outcome is known. Such a row is still in a
+  // submittable status with retryCount === maxAttempts; without this guard no
+  // future cycle would even look at it (the loop below would not run), leaving
+  // a settlement stuck forever. Terminalise it as a dead letter instead.
+  if (job.retryCount >= policy.maxAttempts) {
+    const previousFailure = job.failureReason
+      ? ` Last error: ${job.failureReason}`
+      : "";
+    await failSettlement({
+      job,
+      attempt: job.retryCount,
+      category: "permanent",
+      reason:
+        `Retry budget exhausted after ${job.retryCount} of ` +
+        `${policy.maxAttempts} attempts.${previousFailure}`,
+      ctx,
+    });
+    return;
+  }
 
   if (!job.transactionXdr) {
     await failSettlement({
@@ -543,7 +571,6 @@ export async function processSettlementJob(
     job.status = "verifying";
   }
 
-  const policy = SETTLEMENT_RETRY_POLICY;
   let attempt = job.retryCount;
 
   while (attempt < policy.maxAttempts) {
@@ -656,6 +683,7 @@ function toSettlementJob(row: {
   expiresAt?: Date | null;
   retryCount: number;
   status: string;
+  failureReason?: string | null;
   from: { stellarPublicKey: string };
   to: { stellarPublicKey: string };
 }): SettlementJob {
@@ -673,6 +701,7 @@ function toSettlementJob(row: {
     expiresAt: row.expiresAt ?? null,
     retryCount: row.retryCount,
     status: row.status,
+    failureReason: row.failureReason ?? null,
   };
 }
 
@@ -688,7 +717,9 @@ export async function processSubmittedSettlements(): Promise<void> {
     where: {
       status: { in: [...SUBMITTABLE_STATUSES] },
       transactionXdr: { not: null },
-      retryCount: { lt: SETTLEMENT_RETRY_POLICY.maxAttempts },
+      // Deliberately not filtered on retryCount < maxAttempts: a row whose
+      // final attempt was recorded just before a crash must still be picked up
+      // so processSettlementJob can dead-letter it instead of leaving it stuck.
       AND: [
         { OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] },
         { OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }] },
