@@ -191,7 +191,16 @@ req.log.info({ userId: auth.id, groupId, expenseId: created.id, action: "expense
         action: AuditAction.EXPENSE_CREATE,
         resourceType: "expense",
         resourceId: created.id,
-        metadata: { amount: body.amount, assetCode: body.assetCode },
+        // payerUserId is client-supplied, so it is recorded as metadata; the
+        // actor is always the authenticated user.
+        metadata: {
+          amount: body.amount,
+          assetCode: body.assetCode,
+          assetIssuer: body.assetIssuer ?? null,
+          payerUserId,
+          splitType: body.splitType,
+          shareCount: computed.length,
+        },
       });
 
       return created;
@@ -316,9 +325,10 @@ req.log.info({ userId: auth.id, groupId, expenseId: created.id, action: "expense
       await auditTx(tx, {
         userId: auth.id,
         groupId: expense.groupId,
-        action: "expense.update",
+        action: AuditAction.EXPENSE_UPDATE,
         entityType: "expense",
         entityId: id,
+        metadata: { fields: Object.keys(body) },
       });
 
       return result;
@@ -374,9 +384,10 @@ req.log.info({ userId: auth.id, groupId, expenseId: created.id, action: "expense
       await auditTx(tx, {
         userId: auth.id,
         groupId: found.groupId,
-        action: "expense.delete",
+        action: AuditAction.EXPENSE_DELETE,
         entityType: "expense",
         entityId: id,
+        metadata: { amount: String(found.amount), assetCode: found.assetCode },
       });
     });
     return { ok: true };
