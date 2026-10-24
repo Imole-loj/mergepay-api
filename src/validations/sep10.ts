@@ -1,3 +1,4 @@
+import { Errors } from "../errors";
 /**
  * Zod validation schemas for the SEP-10 authentication endpoints.
  *
@@ -168,3 +169,70 @@ export const sep10VerifyRequestSchema = z
   .strict();
 
 export type Sep10VerifyRequest = z.infer<typeof sep10VerifyRequestSchema>;
+
+
+/**
+ * Query schema for SEP-10 challenge requests via GET query parameters (#875).
+ */
+export const sep10ChallengeQuerySchema = z
+  .object({
+    account: z
+      .string({
+        required_error: "account is required",
+        invalid_type_error: "account must be a string",
+      })
+      .length(
+        STELLAR_ACCOUNT_ID_LENGTH,
+        `account must be a ${STELLAR_ACCOUNT_ID_LENGTH}-character Stellar public key`
+      )
+      .pipe(stellarAccountIdSchema),
+    home_domain: sep10DomainSchema.optional(),
+    client_domain: clientDomainSchema.optional(),
+  })
+  .strict();
+
+export type Sep10ChallengeQuery = z.infer<typeof sep10ChallengeQuerySchema>;
+
+/**
+ * Fastify preHandler hook / middleware validating incoming SEP-10 challenge requests (#875).
+ */
+export async function validateSep10ChallengeHook(req: any) {
+  if (req.method === "GET") {
+    const parsed = sep10ChallengeQuerySchema.safeParse(req.query ?? {});
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const field = issue?.path.join(".") || "account";
+      throw Errors.badRequest("VALIDATION_ERROR", `${field}: ${issue?.message ?? "Invalid SEP-10 challenge parameters"}`);
+    }
+    req.sep10Challenge = parsed.data;
+  } else {
+    const parsedQuery = sep10QuerySchema.safeParse(req.query ?? {});
+    if (!parsedQuery.success) {
+      throw Errors.badRequest("VALIDATION_ERROR", "Unexpected query parameters on POST /auth/challenge");
+    }
+    const parsedBody = sep10ChallengeRequestSchema.safeParse(req.body ?? {});
+    if (!parsedBody.success) {
+      const issue = parsedBody.error.issues[0];
+      const field = issue?.path.join(".") || "account";
+      throw Errors.badRequest("VALIDATION_ERROR", `${field}: ${issue?.message ?? "Invalid SEP-10 challenge payload"}`);
+    }
+    req.sep10Challenge = parsedBody.data;
+  }
+}
+
+/**
+ * Fastify preHandler hook / middleware validating incoming SEP-10 verify requests (#875).
+ */
+export async function validateSep10VerifyHook(req: any) {
+  const parsedQuery = sep10QuerySchema.safeParse(req.query ?? {});
+  if (!parsedQuery.success) {
+    throw Errors.badRequest("VALIDATION_ERROR", "Unexpected query parameters on POST /auth/verify");
+  }
+  const parsedBody = sep10VerifyRequestSchema.safeParse(req.body ?? {});
+  if (!parsedBody.success) {
+    const issue = parsedBody.error.issues[0];
+    const field = issue?.path.join(".") || "transaction";
+    throw Errors.badRequest("VALIDATION_ERROR", `${field}: ${issue?.message ?? "Invalid SEP-10 verify payload"}`);
+  }
+  req.sep10Verify = parsedBody.data;
+}
