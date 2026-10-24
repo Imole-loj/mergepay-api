@@ -2,7 +2,6 @@ import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../db";
 import { requireUser } from "../plugins/auth";
-import { requireGroupRole } from "../plugins/group-access";
 import { rateLimited } from "../lib/rate-limit";
 import { expenseStatusFilter } from "../services/expenses";
 import { serializeExpense, serializeSettlement } from "../serializers";
@@ -16,7 +15,6 @@ import {
 } from "../lib/pagination";
 import { assetCodeSchema } from "../schemas/asset";
 
-const idParamSchema = z.object({ id: z.string().min(1).max(64) });
 
 export const historyQuerySchema = paginationQuerySchema.extend({
   assetCode: assetCodeSchema.optional(),
@@ -176,138 +174,4 @@ export default async function historyRoutes(app: FastifyInstance) {
     };
   });
 
-  // Group-scoped expense and settlement history endpoint
-  app.get(
-    "/groups/:id/history",
-    {
-      preHandler: requireGroupRole("member", { param: "id" }),
-      ...rateLimited("history"),
-    },
-    async (req) => {
-      const { id: groupId } = idParamSchema.parse(req.params);
-      const query = historyQuerySchema.parse(req.query);
-      const position = requireCursor(query.cursor);
-      const cursorCondition = cursorFilter(position, query.order);
-
-      const assetCode = query.assetCode ?? query.asset;
-      const assetFilter = assetCode ? { assetCode } : {};
-
-      const fromDate = query.fromDate ?? query.startDate;
-      const toDate = query.toDate ?? query.endDate;
-
-      const dateFilter: Record<string, unknown> = {};
-      if (fromDate) {
-        dateFilter.createdAt = { gte: new Date(fromDate) };
-      }
-      if (toDate) {
-        dateFilter.createdAt = {
-          ...(dateFilter.createdAt as object | undefined),
-          lte: new Date(toDate),
-        };
-      }
-
-      const takeCount = takeForPage(query.limit);
-      const skipCount = query.offset ?? undefined;
-
-      const [expenses, settlements, total] = await Promise.all([
-        prisma.expense.findMany({
-          where: {
-            AND: [
-              { groupId },
-              cursorCondition,
-              assetFilter,
-              dateFilter,
-              ...(query.status ? [expenseStatusFilter(query.status)] : []),
-            ],
-          },
-          include: { payer: true, shares: { include: { user: true } } },
-          orderBy: [{ createdAt: query.order }, { id: query.order }],
-          take: takeCount,
-          skip: skipCount,
-        }),
-        prisma.settlement.findMany({
-          where: {
-            AND: [
-              { groupId },
-              cursorCondition,
-              assetFilter,
-              dateFilter,
-              ...(query.status ? [{ status: query.status }] : []),
-            ],
-          },
-          include: { from: true, to: true },
-          orderBy: [{ createdAt: query.order }, { id: query.order }],
-          take: takeCount,
-          skip: skipCount,
-        }),
-        query.includeTotal
-          ? Promise.all([
-              prisma.expense.count({
-                where: {
-                  AND: [
-                    { groupId },
-                    assetFilter,
-                    dateFilter,
-                    ...(query.status ? [expenseStatusFilter(query.status)] : []),
-                  ],
-                },
-              }),
-              prisma.settlement.count({
-                where: {
-                  AND: [
-                    { groupId },
-                    assetFilter,
-                    dateFilter,
-                    ...(query.status ? [{ status: query.status }] : []),
-                  ],
-                },
-              }),
-            ]).then(([eCount, sCount]) => eCount + sCount)
-          : Promise.resolve(undefined),
-      ]);
-
-      const merged: (CursorPosition & { type: "expense" | "settlement"; data: unknown })[] = [
-        ...expenses.map((e) => ({
-          type: "expense" as const,
-          createdAt: e.createdAt,
-          id: e.id,
-          data: serializeExpense(e),
-        })),
-        ...settlements.map((s) => ({
-          type: "settlement" as const,
-          createdAt: s.createdAt,
-          id: s.id,
-          data: serializeSettlement(s),
-        })),
-      ].sort((a, b) => {
-        const dir = query.order === "desc" ? -1 : 1;
-        if (a.createdAt.getTime() !== b.createdAt.getTime()) {
-          return a.createdAt.getTime() > b.createdAt.getTime() ? dir : -dir;
-        }
-        return a.id > b.id ? dir : -dir;
-      });
-
-      const hasMore = merged.length > query.limit;
-      const results = hasMore ? merged.slice(0, query.limit) : merged;
-      const last = results[results.length - 1];
-      const nextCursor = hasMore && last ? encodeCursor(last.createdAt, last.id) : null;
-
-      const items = results.map((r) => ({
-        type: r.type,
-        ...(r.data as object),
-      }));
-
-      return {
-        history: items,
-        expenses: items,
-        meta: {
-          nextCursor,
-          hasMore,
-          limit: query.limit,
-          order: query.order,
-          ...(total !== undefined ? { total } : {}),
-        },
-      };
-    }
-  );
 }

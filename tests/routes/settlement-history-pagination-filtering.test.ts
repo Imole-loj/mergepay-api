@@ -195,7 +195,7 @@ describe("Group Expense Settlement History Pagination & Filtering (#882)", () =>
     });
   });
 
-  describe("API Route Integration: GET /groups/:id/history", () => {
+  describe("API Route Integration: GET /history with groupId filtering", () => {
     it("returns group history with pagination metadata and total", async () => {
       const now = new Date();
       prisma.expense.findMany.mockResolvedValue([
@@ -218,14 +218,14 @@ describe("Group Expense Settlement History Pagination & Filtering (#882)", () =>
 
       const res = await app.inject({
         method: "GET",
-        url: `/api/v1/groups/${GROUP_ID}/history?includeTotal=true&limit=10`,
+        url: `/api/v1/history?groupId=${GROUP_ID}&includeTotal=true&limit=10`,
         headers: authHeader(),
       });
 
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body.history).toBeDefined();
-      expect(body.history.length).toBe(1);
+      expect(body.expenses).toBeDefined();
+      expect(body.expenses.length).toBe(1);
       expect(body.meta.limit).toBe(10);
       expect(body.meta.total).toBe(1);
       expect(body.meta.hasMore).toBe(false);
