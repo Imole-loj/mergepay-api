@@ -29,6 +29,10 @@ import {
 } from "./helpers";
 
 const TEST_TIMEOUT = 30000;
+// The live suite needs a running API server plus Stellar testnet/friendbot, so
+// CI runs the Postgres-backed suites only. Opt in locally with
+// RUN_LIVE_INTEGRATION=true.
+const RUN_LIVE_INTEGRATION = process.env.RUN_LIVE_INTEGRATION === "true";
 
 // Generated test accounts
 let adminKeypair: Keypair;

@@ -40,6 +40,8 @@ jobs:
           POSTGRES_DB: mergepay_test
         ports:
           - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mergepay_test"
         # The postgres image ships no HEALTHCHECK, so without this the runner
         # starts the job the instant the container is created, while Postgres is
         # still initialising, and the first connection is refused.
@@ -49,6 +51,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mergepay_test
       DATABASE_URL_TEST: postgresql://postgres:postgres@localhost:5432/mergepay_test
     steps:
       - uses: actions/checkout@v4

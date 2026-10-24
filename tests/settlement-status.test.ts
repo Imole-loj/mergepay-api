@@ -71,7 +71,7 @@ function fakeSettlement(over: Record<string, unknown> = {}) {
     groupId: "group_1",
     fromUserId: MEMBER,
     toUserId: "user_2",
-    amount: "10",
+    amount: "10.0000000",
     assetCode: "XLM",
     assetIssuer: null,
     stellarTxHash: null,

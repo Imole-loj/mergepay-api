@@ -312,7 +312,7 @@ export default async function settlementRoutes(app: FastifyInstance) {
           metadata: {
             from: auth.id,
             to: expense.payerUserId,
-            amount: myShare.shareAmount,
+            amount: myShare.shareAmount.toString(),
             assetCode,
           },
         });
