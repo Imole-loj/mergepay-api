@@ -447,3 +447,34 @@ export function inspectTreasuryXdr(
     policy
   );
 }
+
+export interface DeterministicTreasuryPaymentParams {
+  sourcePublicKey: string;
+  sourceSequence: string;
+  destination: string;
+  asset: AssetSpec;
+  amount: string;
+  memoCode: string;
+  validitySeconds?: number;
+  minTime?: number;
+  maxTime?: number;
+  feeStroops?: number | string;
+}
+
+/**
+ * Deterministically constructs an unsigned Stellar payment XDR for treasury proposals.
+ * Uses exact timebounds and sequence numbers without any private key dependencies.
+ */
+export function buildDeterministicTreasuryPaymentXdr(
+  params: DeterministicTreasuryPaymentParams
+): string {
+  return stellar.buildPayment({
+    sourcePublicKey: params.sourcePublicKey,
+    sourceSequence: params.sourceSequence,
+    destination: params.destination,
+    asset: params.asset,
+    amount: params.amount,
+    memoCode: params.memoCode,
+    validitySeconds: params.validitySeconds,
+  });
+}
