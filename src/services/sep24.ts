@@ -44,6 +44,8 @@ import { audit } from "./audit";
 import { mapAnchorStatus } from "./anchor";
 import { applyAnchorSessionTransition } from "./anchor-status";
 import { sanitizeStatusReason } from "./sep24-status";
+import { parseSep24TransactionResponse } from "./anchor-schemas";
+import { isTerminalSep24Status } from "./sep24-types";
 
 /** Header carrying the anchor's HMAC-SHA256 signature over the raw body. */
 export const SEP24_SIGNATURE_HEADER = "x-sep24-signature";
@@ -312,4 +314,130 @@ function buildExtraData(callback: Sep24Callback) {
   const reason = sanitizeStatusReason(callback.message);
   if (reason) extra.failureReason = reason;
   return Object.keys(extra).length > 0 ? extra : undefined;
+}
+
+
+/** Options for tracking and synchronizing an external SEP-24 transaction status (#877). */
+export interface TrackSep24StatusOptions {
+  sessionId?: string;
+  externalTransactionId: string;
+  anchorResponse?: unknown;
+  rawStatus?: string;
+  message?: string | null;
+  source?: "user" | "webhook" | "poll";
+}
+
+/** Result of tracking an external SEP-24 transaction status (#877). */
+export interface TrackSep24StatusResult {
+  success: boolean;
+  sessionId?: string;
+  externalTransactionId: string;
+  status: string;
+  previousStatus?: string;
+  changed: boolean;
+  terminal: boolean;
+  error?: string;
+}
+
+/**
+ * Enhanced SEP-24 deposit and withdrawal status tracking service (#877).
+ *
+ * Validates anchor response payloads with Zod, normalizes transaction states,
+ * and coordinates database transitions through applyAnchorSessionTransition
+ * with resilient error recovery to ensure background workers and routes never crash.
+ */
+export async function trackSep24TransactionStatus(
+  options: TrackSep24StatusOptions
+): Promise<TrackSep24StatusResult> {
+  const { externalTransactionId, source = "poll" } = options;
+
+  try {
+    let effectiveRawStatus = options.rawStatus;
+    let effectiveMessage = options.message;
+
+    // If an external anchor response payload is supplied, validate it using Zod schema
+    if (options.anchorResponse !== undefined) {
+      const parsed = parseSep24TransactionResponse(options.anchorResponse);
+      if (!parsed.success) {
+        return {
+          success: false,
+          externalTransactionId,
+          status: "unknown",
+          changed: false,
+          terminal: false,
+          error: `Invalid anchor response payload: ${parsed.fields.join(", ")}`,
+        };
+      }
+      effectiveRawStatus = parsed.transaction.status;
+      if (parsed.transaction.message) {
+        effectiveMessage = parsed.transaction.message;
+      }
+    }
+
+    if (!effectiveRawStatus) {
+      return {
+        success: false,
+        externalTransactionId,
+        status: "unknown",
+        changed: false,
+        terminal: false,
+        error: "Missing transaction status in anchor update",
+      };
+    }
+
+    const normalizedStatus = toSessionStatus(effectiveRawStatus);
+    const terminal = isTerminalSep24Status(normalizedStatus);
+
+    // Locate the corresponding AnchorSession by sessionId or externalTransactionId
+    const session = options.sessionId
+      ? await prisma.anchorSession.findUnique({
+          where: { id: options.sessionId },
+          select: { id: true, status: true, externalTransactionId: true },
+        })
+      : await prisma.anchorSession.findFirst({
+          where: { externalTransactionId },
+          select: { id: true, status: true, externalTransactionId: true },
+        });
+
+    if (!session) {
+      return {
+        success: true,
+        externalTransactionId,
+        status: normalizedStatus,
+        changed: false,
+        terminal,
+        error: "No matching anchor session found in database",
+      };
+    }
+
+    const previousStatus = session.status;
+    const transitionResult = await applyAnchorSessionTransition({
+      sessionId: session.id,
+      nextStatus: normalizedStatus,
+      source,
+      reason: sanitizeStatusReason(effectiveMessage),
+      extraData: effectiveMessage ? { failureReason: sanitizeStatusReason(effectiveMessage) } : undefined,
+    });
+
+    return {
+      success: true,
+      sessionId: session.id,
+      externalTransactionId,
+      status: normalizedStatus,
+      previousStatus,
+      changed: transitionResult.changed,
+      terminal,
+    };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return {
+      success: false,
+      sessionId: options.sessionId,
+      externalTransactionId,
+      status: "error",
+      changed: false,
+      terminal: true,
+      error: `Unexpected error tracking SEP-24 status: ${errorMsg}`,
+    };
+  }
 }
