@@ -164,3 +164,63 @@ export const sep24CallbackSchema = z
 
 /** The normalized callback every SEP-24 callback handler receives. */
 export type Sep24Callback = z.infer<typeof sep24CallbackSchema>;
+
+
+/**
+ * Zod schema for SEP-24 interactive deposit callback parameters.
+ */
+export const sep24InteractiveDepositCallbackParamsSchema = z
+  .object({
+    id: z.string().min(1).max(255).optional(),
+    status: z.string().min(1).max(64).optional(),
+    kind: z.literal("deposit").optional(),
+    amount_in: z.string().max(64).nullish(),
+    amount_out: z.string().max(64).nullish(),
+    amount_fee: z.string().max(64).nullish(),
+    stellar_transaction_id: sep24StellarTransactionHashSchema.nullish(),
+    external_transaction_id: z.string().max(255).nullish(),
+    message: z.string().max(1024).nullish(),
+    transaction: sep24CallbackTransactionSchema.optional(),
+  })
+  .passthrough();
+
+/**
+ * Zod schema for SEP-24 interactive withdrawal callback parameters.
+ */
+export const sep24InteractiveWithdrawalCallbackParamsSchema = z
+  .object({
+    id: z.string().min(1).max(255).optional(),
+    status: z.string().min(1).max(64).optional(),
+    kind: z.literal("withdrawal").optional(),
+    amount_in: z.string().max(64).nullish(),
+    amount_out: z.string().max(64).nullish(),
+    amount_fee: z.string().max(64).nullish(),
+    stellar_transaction_id: sep24StellarTransactionHashSchema.nullish(),
+    external_transaction_id: z.string().max(255).nullish(),
+    message: z.string().max(1024).nullish(),
+    transaction: sep24CallbackTransactionSchema.optional(),
+  })
+  .passthrough();
+
+export type Sep24InteractiveDepositCallbackParams = z.infer<
+  typeof sep24InteractiveDepositCallbackParamsSchema
+>;
+export type Sep24InteractiveWithdrawalCallbackParams = z.infer<
+  typeof sep24InteractiveWithdrawalCallbackParamsSchema
+>;
+
+/**
+ * Validate SEP-24 interactive callback parameters for deposit or withdrawal flows.
+ */
+export function validateSep24InteractiveCallbackParams(
+  params: unknown,
+  kind?: "deposit" | "withdrawal"
+) {
+  if (kind === "deposit") {
+    return sep24InteractiveDepositCallbackParamsSchema.parse(params);
+  }
+  if (kind === "withdrawal") {
+    return sep24InteractiveWithdrawalCallbackParamsSchema.parse(params);
+  }
+  return sep24CallbackSchema.parse(params);
+}
