@@ -50,6 +50,8 @@ import {
 import {
   validateSep24Deposit,
   validateSep24Withdraw,
+  validateSep24DepositRequest,
+  validateSep24WithdrawalRequest,
 } from "../schemas/sep24";
 
 /**
@@ -140,12 +142,13 @@ export default async function sep24Routes(app: FastifyInstance) {
   ) {
     const auth = requireUser(req);
 
-    // The query string and body were parsed by the `validateSep24Deposit` /
-    // `validateSep24Withdraw` preHandler on the route below, before any anchor
-    // is contacted, so a malformed request never reaches an upstream call, the
-    // database, or the audit log. Parsing them again here would be a second
-    // copy of the same contract.
-    validateAsset(body.assetCode, body.assetIssuer);
+    // Validate payload with dedicated Zod schemas before touching anchor or database
+    const validatedBody =
+      kind === "deposit"
+        ? validateSep24DepositRequest(body ?? req.body)
+        : validateSep24WithdrawalRequest(body ?? req.body);
+
+    validateAsset(validatedBody.assetCode, validatedBody.assetIssuer);
 
     const t = await anchorService.getToml(config.ANCHOR_HOME_DOMAIN);
     const challenge = await anchorService.getChallenge(
@@ -157,9 +160,9 @@ export default async function sep24Routes(app: FastifyInstance) {
       const created = await tx.anchorSession.create({
         data: {
           userId: auth.id,
-          anchorName: body.anchorName ?? config.ANCHOR_NAME,
+          anchorName: validatedBody.anchorName ?? config.ANCHOR_NAME,
           kind,
-          assetCode: body.assetCode,
+          assetCode: validatedBody.assetCode,
           status: "incomplete",
         },
       });
@@ -168,7 +171,7 @@ export default async function sep24Routes(app: FastifyInstance) {
         action: "anchor_session.start",
         entityType: "anchor_session",
         entityId: created.id,
-        metadata: { kind, assetCode: body.assetCode },
+        metadata: { kind, assetCode: validatedBody.assetCode },
       });
       return created;
     });

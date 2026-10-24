@@ -88,6 +88,43 @@ export const validateSep24Withdraw = validateRequest({
   body: sep24WithdrawRequestSchema,
 });
 
+/**
+ * Dedicated schema for SEP-24 deposit initiation parameters.
+ */
+export const sep24DepositInitiationSchema = z.object({
+  query: sep24InitQuerySchema.optional(),
+  body: sep24DepositRequestSchema,
+});
+
+/**
+ * Dedicated schema for SEP-24 withdrawal initiation parameters.
+ */
+export const sep24WithdrawalInitiationSchema = z.object({
+  query: sep24InitQuerySchema.optional(),
+  body: sep24WithdrawRequestSchema,
+});
+
+/**
+ * Validate SEP-24 deposit request payload.
+ */
+export function validateSep24DepositRequest(body: unknown) {
+  return sep24DepositRequestSchema.parse(body);
+}
+
+/**
+ * Validate SEP-24 withdrawal request payload.
+ */
+export function validateSep24WithdrawalRequest(body: unknown) {
+  return sep24WithdrawRequestSchema.parse(body);
+}
+
+/**
+ * Validate SEP-24 initiation query parameters.
+ */
+export function validateSep24InitQuery(query: unknown) {
+  return sep24InitQuerySchema.parse(query);
+}
+
 // -- deposit / withdrawal status callbacks ----------------------------------
 
 /**
