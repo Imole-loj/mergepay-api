@@ -415,6 +415,7 @@ export default async function settlementRoutes(app: FastifyInstance) {
 
         await auditTx(tx, {
           userId: auth.id,
+          actorPublicKey: auth.stellarPublicKey,
           groupId,
           action: "settlement.create",
           entityType: "settlement",
@@ -592,6 +593,7 @@ export default async function settlementRoutes(app: FastifyInstance) {
           // retry bookkeeping is reset below so the worker picks it up fresh.
           await auditTx(tx, {
             userId: auth.id,
+            actorPublicKey: auth.stellarPublicKey,
             groupId: settlement.groupId,
             action: "settlement.confirm.retry",
             entityType: "settlement",
@@ -629,6 +631,7 @@ export default async function settlementRoutes(app: FastifyInstance) {
           });
           await auditTx(tx, {
             userId: auth.id,
+            actorPublicKey: auth.stellarPublicKey,
             groupId: settlement.groupId,
             action: "settlement.confirm",
             entityType: "settlement",
@@ -774,6 +777,7 @@ export default async function settlementRoutes(app: FastifyInstance) {
           });
           await auditTx(tx, {
             userId: auth.id,
+            actorPublicKey: auth.stellarPublicKey,
             groupId: settlement.groupId,
             action: "settlement.execute",
             entityType: "settlement",

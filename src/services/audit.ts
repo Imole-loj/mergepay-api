@@ -336,3 +336,130 @@ export async function auditGroupExpenseMutation(
     },
   });
 }
+
+
+export interface SettlementAuditParams {
+  userId: string;
+  actorPublicKey?: string | null;
+  groupId: string;
+  settlementId: string;
+  amount: string;
+  assetCode: string;
+  toUserId?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Audit log helper for group expense settlement initiation (#884).
+ * Records the actor's public key, action type, target group, and settlement id.
+ */
+export async function auditSettlementInitiated(
+  params: SettlementAuditParams,
+  tx?: Prisma.TransactionClient
+): Promise<void> {
+  const auditPayload: AuditParams = {
+    userId: params.userId,
+    actorPublicKey: params.actorPublicKey ?? null,
+    groupId: params.groupId,
+    action: AuditAction.SETTLEMENT_CREATED,
+    entityType: "settlement",
+    entityId: params.settlementId,
+    outcome: "success",
+    actorType: "user",
+    metadata: {
+      amount: params.amount,
+      assetCode: params.assetCode,
+      ...(params.toUserId ? { toUserId: params.toUserId } : {}),
+      ...(params.metadata ?? {}),
+    },
+  };
+  if (tx) {
+    await auditTx(tx, auditPayload);
+  } else {
+    await audit(auditPayload);
+  }
+}
+
+export interface SettlementFinalizeAuditParams {
+  userId: string;
+  actorPublicKey?: string | null;
+  groupId: string;
+  settlementId: string;
+  status: "confirmed" | "completed" | "submitted" | "failed";
+  stellarTxHash?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Audit log helper for group expense settlement finalization (#884).
+ * Records settlement completion or failure with actor credentials and transaction hash.
+ */
+export async function auditSettlementFinalized(
+  params: SettlementFinalizeAuditParams,
+  tx?: Prisma.TransactionClient
+): Promise<void> {
+  const isFailed = params.status === "failed";
+  const auditPayload: AuditParams = {
+    userId: params.userId,
+    actorPublicKey: params.actorPublicKey ?? null,
+    groupId: params.groupId,
+    action: isFailed ? AuditAction.SETTLEMENT_FAILED : AuditAction.SETTLEMENT_CONFIRMED,
+    entityType: "settlement",
+    entityId: params.settlementId,
+    outcome: isFailed ? "failure" : "success",
+    actorType: "user",
+    metadata: {
+      status: params.status,
+      ...(params.stellarTxHash ? { stellarTxHash: params.stellarTxHash } : {}),
+      ...(params.metadata ?? {}),
+    },
+  };
+  if (tx) {
+    await auditTx(tx, auditPayload);
+  } else {
+    await audit(auditPayload);
+  }
+}
+
+export interface TreasurySignerChangeAuditParams {
+  userId: string;
+  actorPublicKey?: string | null;
+  groupId: string;
+  treasuryAccountPublicKey: string;
+  requiredSigners: number;
+  previousRequiredSigners?: number | null;
+  signers?: Array<{ publicKey: string; weight: number }>;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Audit log helper for treasury multisig configuration and signer modifications (#884).
+ * Records modifications to treasury signers and required signer thresholds.
+ */
+export async function auditTreasurySignerChange(
+  params: TreasurySignerChangeAuditParams,
+  tx?: Prisma.TransactionClient
+): Promise<void> {
+  const auditPayload: AuditParams = {
+    userId: params.userId,
+    actorPublicKey: params.actorPublicKey ?? null,
+    groupId: params.groupId,
+    action: AuditAction.TREASURY_SIGNER_UPDATE,
+    entityType: "group",
+    entityId: params.groupId,
+    outcome: "success",
+    actorType: "user",
+    metadata: {
+      treasuryAccountPublicKey: params.treasuryAccountPublicKey,
+      requiredSigners: params.requiredSigners,
+      previousRequiredSigners: params.previousRequiredSigners ?? null,
+      ...(params.signers ? { signers: params.signers } : {}),
+      ...(params.metadata ?? {}),
+    },
+  };
+  if (tx) {
+    await auditTx(tx, auditPayload);
+  } else {
+    await audit(auditPayload);
+  }
+}
