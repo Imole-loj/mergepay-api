@@ -88,7 +88,7 @@ describe("Group Expense Settlement XDR Lifecycle Integration (#900)", () => {
     const res = await app.inject({
       method: "POST",
       url: `/groups/${groupId}/expenses`,
-      headers: authHeaders(creditor.token),
+      headers: authHeaders(creditor),
       payload: {
         title: "Team Lunch in USDC",
         amount: "90.0000000",
@@ -121,7 +121,7 @@ describe("Group Expense Settlement XDR Lifecycle Integration (#900)", () => {
     const res = await app.inject({
       method: "GET",
       url: `/groups/${groupId}/balances`,
-      headers: authHeaders(debtor.token),
+      headers: authHeaders(debtor),
     });
 
     expect(res.statusCode).toBe(200);
@@ -143,7 +143,7 @@ describe("Group Expense Settlement XDR Lifecycle Integration (#900)", () => {
     const res = await app.inject({
       method: "POST",
       url: `/groups/${groupId}/settlements`,
-      headers: authHeaders(debtor.token),
+      headers: authHeaders(debtor),
       payload: {
         toUserId: creditor.id,
         amount: "30.0000000",
