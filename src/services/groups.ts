@@ -14,7 +14,7 @@ import {
   requireActiveAdmin,
   type MembershipContext,
 } from "./access";
-import { audit } from "./audit";
+import { audit, auditGroupMemberActionTx } from "./audit";
 import { AuditAction } from "./audit-actions";
 import { prisma } from "../db";
 
@@ -91,3 +91,92 @@ export {
   type UpdateGroupInput,
   type GroupCurrency,
 };
+
+
+export interface ModifyGroupMemberRoleOptions {
+  actorUserId: string;
+  groupId: string;
+  targetUserId: string;
+  newRole: "admin" | "member";
+  tx?: any;
+}
+
+export interface ModifyGroupMemberRoleResult {
+  userId: string;
+  groupId: string;
+  previousRole: string;
+  newRole: string;
+  changed: boolean;
+}
+
+/**
+ * Modify a group member's role with mandatory audit logging and last-admin protection (#876).
+ *
+ * Atomically verifies authorization, enforces the last-admin invariant, updates the role,
+ * and records a GROUP_MEMBER_ROLE_CHANGE audit entry with previous and new roles.
+ */
+export async function modifyGroupMemberRole(
+  options: ModifyGroupMemberRoleOptions
+): Promise<ModifyGroupMemberRoleResult> {
+  const { actorUserId, groupId, targetUserId, newRole } = options;
+
+  const runWithTx = async (tx: any) => {
+    await requireAdmin(groupId, actorUserId, tx);
+
+    const target = await tx.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId: targetUserId } },
+    });
+    if (!target) {
+      throw Errors.notFound("Member not found in this group");
+    }
+
+    if (target.role === newRole) {
+      return {
+        userId: targetUserId,
+        groupId,
+        previousRole: target.role,
+        newRole,
+        changed: false,
+      };
+    }
+
+    if (target.role === "admin" && newRole !== "admin") {
+      const adminCount = await tx.groupMember.count({
+        where: { groupId, role: "admin" },
+      });
+      if (adminCount <= 1) {
+        throw Errors.conflict("LAST_ADMIN", "Cannot remove the only admin from a group");
+      }
+    }
+
+    const updated = await tx.groupMember.update({
+      where: { groupId_userId: { groupId, userId: targetUserId } },
+      data: { role: newRole },
+    });
+
+    await auditGroupMemberActionTx(tx, {
+      userId: actorUserId,
+      groupId,
+      memberId: targetUserId,
+      action: AuditAction.GROUP_MEMBER_ROLE_CHANGE,
+      metadata: {
+        targetUserId,
+        previousRole: target.role,
+        newRole,
+      },
+    });
+
+    return {
+      userId: updated.userId,
+      groupId,
+      previousRole: target.role,
+      newRole: updated.role,
+      changed: true,
+    };
+  };
+
+  if (options.tx) {
+    return runWithTx(options.tx);
+  }
+  return prisma.$transaction((tx: any) => runWithTx(tx));
+}
