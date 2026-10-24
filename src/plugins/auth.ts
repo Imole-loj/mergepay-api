@@ -1,25 +1,31 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import fp from "fastify-plugin";
 import { z } from "zod";
-import { Errors } from "../errors";
+import { AppError, Errors } from "../errors";
 import { verifyToken } from "../services/jwt";
 import type { AuthUser } from "../services/jwt";
+import { authenticateChallenge, classifySep10Error, type VerifiedChallenge } from "../services/auth";
 
 /*
- * The JWT utilities live in src/services/jwt.ts (issue #421). They are
- * re-exported here so this plugin stays the single import point the routes
- * and tests have always used, while the crypto itself remains unit-testable
- * without building a Fastify instance.
+ * The JWT utilities live in src/services/jwt.ts (issue #421) and the unified auth
+ * service in src/services/auth.ts (issue #885). They are re-exported here so this
+ * plugin stays the single import point the routes and tests have always used, while
+ * the crypto itself remains unit-testable without building a Fastify instance.
  */
 export { signToken, verifyToken } from "../services/jwt";
+export { authenticateChallenge, buildChallenge, verifyChallenge, classifySep10Error } from "../services/auth";
 export type { AuthUser } from "../services/jwt";
+export type { VerifiedChallenge } from "../services/auth";
 
 declare module "fastify" {
   interface FastifyRequest {
     user?: AuthUser;
+    sep10Account?: string;
+    sep10Challenge?: VerifiedChallenge;
   }
   interface FastifyInstance {
     authenticate: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    authenticateSep10: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 
@@ -49,18 +55,70 @@ async function authenticate(req: FastifyRequest, _reply: FastifyReply) {
     throw Errors.missingToken();
   }
 
+  // Handle SEP10 challenge scheme if presented in Authorization header
+  if (header.startsWith("SEP10 ") || header.startsWith("sep10 ")) {
+    const xdr = header.slice(6).trim();
+    if (!xdr) {
+      throw Errors.malformedToken("Authorization header must contain valid SEP-10 transaction XDR");
+    }
+    try {
+      const verified = await authenticateChallenge(xdr);
+      req.sep10Account = verified.account;
+      req.sep10Challenge = verified;
+      req.user = { id: verified.account, stellarPublicKey: verified.account };
+      return;
+    } catch (err) {
+      throw classifySep10Error(err);
+    }
+  }
+
   const parsedHeader = authorizationHeaderSchema.safeParse(header);
   if (!parsedHeader.success) {
     throw Errors.malformedToken("Authorization header must be of the form 'Bearer <token>'");
   }
 
-  // verifyToken raises the specific 401 the caller should act on, so its
-  // AppErrors must reach the error handler unmodified.
-  req.user = verifyToken(parsedHeader.data.slice("Bearer ".length));
+  try {
+    req.user = verifyToken(parsedHeader.data.slice("Bearer ".length));
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    throw Errors.invalidToken();
+  }
+}
+
+/**
+ * Dedicated Fastify hook for verifying SEP-10 challenge transactions directly.
+ * Accepts challenge XDR via X-SEP10-Challenge header, Authorization: SEP10 <xdr>,
+ * or request body transaction field.
+ */
+async function authenticateSep10(req: FastifyRequest, _reply: FastifyReply) {
+  const header = req.headers.authorization;
+  const challengeHeader = req.headers["x-sep10-challenge"] as string | undefined;
+
+  let xdr = challengeHeader;
+  if (!xdr && header && (header.startsWith("SEP10 ") || header.startsWith("sep10 "))) {
+    xdr = header.slice(6).trim();
+  }
+  if (!xdr && req.body && typeof req.body === "object" && "transaction" in req.body) {
+    xdr = (req.body as { transaction: string }).transaction;
+  }
+
+  if (!xdr || typeof xdr !== "string" || xdr.trim() === "") {
+    throw Errors.badRequest("missing_challenge", "SEP-10 challenge transaction is required");
+  }
+
+  try {
+    const verified = await authenticateChallenge(xdr.trim());
+    req.sep10Account = verified.account;
+    req.sep10Challenge = verified;
+    req.user = { id: verified.account, stellarPublicKey: verified.account };
+  } catch (err) {
+    throw classifySep10Error(err);
+  }
 }
 
 export default fp(async function authPlugin(app: FastifyInstance) {
   app.decorate("authenticate", authenticate);
+  app.decorate("authenticateSep10", authenticateSep10);
 });
 
 /** Read the authenticated user or throw 401. */
