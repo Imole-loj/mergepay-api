@@ -16,6 +16,7 @@ import {
   Horizon,
   Keypair,
   Memo,
+  Networks,
   Operation,
   StrKey,
   Transaction,
@@ -361,11 +362,43 @@ export const stellar = {
      * persisted, never a client-supplied one.
      */
     validitySeconds?: number;
+    feeStroops?: number | string;
   }): string {
+    // Validate source and destination signer constraints (#880)
+    if (!params.sourcePublicKey || !StrKey.isValidEd25519PublicKey(params.sourcePublicKey)) {
+      throw Errors.badRequest(
+        "invalid_source_account",
+        "Source account must be a valid Stellar public key (G...)"
+      );
+    }
+    if (!params.destination || !StrKey.isValidEd25519PublicKey(params.destination)) {
+      throw Errors.badRequest(
+        "invalid_destination_account",
+        "Destination must be a valid Stellar public key (G...)"
+      );
+    }
+    if (!params.sourceSequence || !/^\d+$/.test(String(params.sourceSequence))) {
+      throw Errors.badRequest(
+        "invalid_sequence",
+        "Source sequence must be a valid numeric sequence string"
+      );
+    }
+    if (params.asset?.issuer && !StrKey.isValidEd25519PublicKey(params.asset.issuer)) {
+      throw Errors.badRequest(
+        "invalid_asset_issuer",
+        "Asset issuer must be a valid Stellar public key (G...)"
+      );
+    }
+
+    const networkPassphrase = config.networkPassphrase || Networks.TESTNET;
     const source = new Account(params.sourcePublicKey, params.sourceSequence);
+    const fee = params.feeStroops
+      ? String(params.feeStroops)
+      : String(Number(BASE_FEE) * 2);
+
     const tx = new TransactionBuilder(source, {
-      fee: String(Number(BASE_FEE) * 2),
-      networkPassphrase: config.networkPassphrase,
+      fee,
+      networkPassphrase,
     })
       .addOperation(
         Operation.payment({
