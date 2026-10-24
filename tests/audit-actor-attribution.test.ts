@@ -392,6 +392,7 @@ describe("worker audit writes name their actor (#667/#676)", () => {
   const AUDIT_WRITES_BY_FILE: Record<string, number> = {
     "worker/cleanupProposals.ts": 1,
     "worker/expireSettlementIntents.ts": 1,
+    "worker/processPendingTreasuryMultisig.ts": 1,
     "worker/index.ts": 3,
     "worker/reconciliation.ts": 1,
     "worker/tasks/tx-status-sync.ts": 1,
