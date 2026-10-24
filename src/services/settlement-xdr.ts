@@ -3,7 +3,9 @@ import {
   Asset,
   BASE_FEE,
   Memo,
+  Networks,
   Operation,
+  StrKey,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
 import { config } from "../config";
@@ -136,6 +138,33 @@ export interface DeterministicPaymentParams {
 export function buildDeterministicSettlementPaymentXdr(
   params: DeterministicPaymentParams
 ): string {
+  // Validate signer and account constraints (#880)
+  if (!params.sourcePublicKey || !StrKey.isValidEd25519PublicKey(params.sourcePublicKey)) {
+    throw Errors.badRequest(
+      "invalid_source_account",
+      "Source account must be a valid Stellar public key (G...)"
+    );
+  }
+  if (!params.destination || !StrKey.isValidEd25519PublicKey(params.destination)) {
+    throw Errors.badRequest(
+      "invalid_destination_account",
+      "Destination must be a valid Stellar public key (G...)"
+    );
+  }
+  if (!params.sourceSequence || !/^\d+$/.test(String(params.sourceSequence))) {
+    throw Errors.badRequest(
+      "invalid_sequence",
+      "Source sequence must be a valid numeric sequence string"
+    );
+  }
+  if (params.assetIssuer && !StrKey.isValidEd25519PublicKey(params.assetIssuer)) {
+    throw Errors.badRequest(
+      "invalid_asset_issuer",
+      "Asset issuer must be a valid Stellar public key (G...)"
+    );
+  }
+
+  const networkPassphrase = config.networkPassphrase || Networks.TESTNET;
   const source = new Account(params.sourcePublicKey, params.sourceSequence);
   const fee = params.feeStroops
     ? String(params.feeStroops)
@@ -143,7 +172,7 @@ export function buildDeterministicSettlementPaymentXdr(
 
   const builder = new TransactionBuilder(source, {
     fee,
-    networkPassphrase: config.networkPassphrase,
+    networkPassphrase,
     timebounds:
       params.minTime !== undefined && params.maxTime !== undefined
         ? { minTime: params.minTime, maxTime: params.maxTime }
