@@ -10,7 +10,7 @@
  *  5. Structured audit log persistence for mutating lifecycle events.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { Keypair, Transaction } from "@stellar/stellar-sdk";
+import { Keypair, Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
 import type { FastifyInstance } from "fastify";
 
 vi.mock("../../src/services/stellar", async (importOriginal) => {
@@ -105,7 +105,7 @@ describe("Group Expense Settlement XDR Lifecycle Integration (#900)", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.expense.id).toBeDefined();
-    expect(body.expense.amount).toBe("90.0000000");
+    expect(body.expense.amount).toBe("90");
 
     // Verify stored shares in PostgreSQL
     const storedShares = await prisma.expenseShare.findMany({
@@ -129,12 +129,13 @@ describe("Group Expense Settlement XDR Lifecycle Integration (#900)", () => {
     expect(body.balances).toBeDefined();
 
     // Debtor owes 30 USDC net
-    const debtorBalance = body.balances.find((b: any) => b.userId === debtor.id);
+    const usdcBalances = body.assets.find((asset: any) => asset.assetCode === "USDC")?.balances ?? [];
+    const debtorBalance = usdcBalances.find((b: any) => b.userId === debtor.id);
     expect(debtorBalance).toBeDefined();
     expect(Number(debtorBalance.net)).toBeLessThan(0);
 
     // Creditor is owed 60 USDC net (paid 90, owes 30 for their own share)
-    const creditorBalance = body.balances.find((b: any) => b.userId === creditor.id);
+    const creditorBalance = usdcBalances.find((b: any) => b.userId === creditor.id);
     expect(creditorBalance).toBeDefined();
     expect(Number(creditorBalance.net)).toBeGreaterThan(0);
   });
@@ -158,7 +159,7 @@ describe("Group Expense Settlement XDR Lifecycle Integration (#900)", () => {
     expect(body.xdr).toBeDefined();
 
     // Inspect the generated unsigned XDR
-    const tx = new Transaction(body.xdr, config.networkPassphrase);
+    const tx = TransactionBuilder.fromXDR(body.xdr, config.networkPassphrase) as Transaction;
     expect(tx.source).toBe(debtor.publicKey);
     expect(tx.operations).toHaveLength(1);
 
