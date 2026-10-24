@@ -60,19 +60,17 @@ describe("Group Expense Settlement XDR Lifecycle Integration (#900)", () => {
   beforeAll(async () => {
     app = await buildApp();
 
-    owner = await seedUser({ displayName: "XDR Test Owner" });
-    debtor = await seedUser({ displayName: "XDR Test Debtor" });
-    creditor = await seedUser({ displayName: "XDR Test Creditor" });
+    owner = await seedUser("XDR Test Owner");
+    debtor = await seedUser("XDR Test Debtor");
+    creditor = await seedUser("XDR Test Creditor");
     userIdsToClean.push(owner.id, debtor.id, creditor.id);
 
-    const group = await createGroupWithMembers({
-      creator: owner,
-      name: "XDR Lifecycle Test Group",
-      members: [
-        { user: debtor, role: "member" },
-        { user: creditor, role: "member" },
-      ],
-    });
+    const group = await createGroupWithMembers(
+      app,
+      owner,
+      [debtor, creditor],
+      "XDR Lifecycle Test Group",
+    );
     groupId = group.id;
     groupIdsToClean.push(groupId);
   });
