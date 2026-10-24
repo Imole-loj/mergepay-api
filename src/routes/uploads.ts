@@ -26,6 +26,7 @@ import { config } from "../config";
 import { Errors } from "../errors";
 import { rateLimited } from "../lib/rate-limit";
 import { requireUser } from "../plugins/auth";
+import { logAuditTrail } from "../services/audit";
 
 const ALLOWED: Record<string, string> = {
   "image/png": "png",
@@ -69,7 +70,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
     "/uploads/receipt",
     { ...rateLimited("uploadReceipt"), preHandler: [app.authenticate] },
     async (req) => {
-      requireUser(req);
+      const auth = requireUser(req);
 
       // Limit violations (file too large, too many files, oversized field) are
       // raised here by @fastify/multipart and mapped to their own client errors
@@ -147,6 +148,20 @@ export default async function uploadRoutes(app: FastifyInstance) {
         await discard(tempPath);
         throw Errors.internal("Failed to store the uploaded file");
       }
+
+      // The receipt now exists on disk — a state change worth a durable record
+      // (issue #914). Scheduled rather than awaited, so the 200 is not held for
+      // a database round trip. Only the content type is recorded: this file
+      // never logs filenames or contents.
+      logAuditTrail({
+        actorId: auth.id,
+        actorType: "user",
+        action: "receipt.upload",
+        resourceType: "receipt",
+        resourceId: id,
+        outcome: "success",
+        metadata: { contentType: data.mimetype },
+      });
 
       return {
         id,
