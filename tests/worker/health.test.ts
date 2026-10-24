@@ -353,6 +353,10 @@ describe("runWorkerCycle — task retries, dead-lettering, and heartbeat (#708)"
     expect(health.cyclesFailed).toBe(0);
     expect(health.taskFailures.cleanupChallenges).toBe(2);
     expect(health.deadLetteredTasks).toEqual([]);
+    const retryLog = h.logger.warn.mock.calls.find(
+      ([fields]) => fields?.task === "cleanupChallenges"
+    );
+    expect(retryLog?.[0].err.stack).toContain("Error: db connection refused");
   });
 
   it("dead-letters an exhausted task as critical without starving its siblings", async () => {
@@ -370,6 +374,7 @@ describe("runWorkerCycle — task retries, dead-lettering, and heartbeat (#708)"
     );
     expect(deadLetter).toBeDefined();
     expect(deadLetter![0].task).toBe("cleanupChallenges");
+    expect(deadLetter![0].err.stack).toContain("Error: service unavailable");
 
     // ...and the sibling tasks still ran.
     expect(h.prisma.invite.deleteMany).toHaveBeenCalled();
@@ -379,6 +384,17 @@ describe("runWorkerCycle — task retries, dead-lettering, and heartbeat (#708)"
     expect(health.cyclesFailed).toBe(1);
     expect(health.lastCycleOutcome).toBe("failed");
     expect(health.deadLetteredTasks).toContain("cleanupChallenges");
+  });
+
+  it("marks the cycle failed when a recovery task exhausts its budget", async () => {
+    h.prisma.anchorSession.updateMany.mockRejectedValueOnce(
+      Object.assign(new Error("recovery query rejected"), { status: 400 })
+    );
+
+    await runWorkerCycle();
+
+    expect(getWorkerHealth().lastCycleOutcome).toBe("failed");
+    expect(getWorkerHealth().deadLetteredTasks).toContain("recoverStaleAnchorSessions");
   });
 });
 

@@ -124,6 +124,31 @@ describe("jwt wrapper — verification", () => {
     expectAppError(() => verifyToken(forged), "INVALID_TOKEN");
   });
 
+  it("rejects a token with an issuer that does not match configuration", () => {
+    expectAppError(
+      () => verifyToken(signWith({ expiresIn: "1h", issuer: "other-service" })),
+      "INVALID_TOKEN"
+    );
+  });
+
+  it("rejects a token without an issuer claim", () => {
+    const token = jwt.sign(
+      { sub: USER.id, pk: USER.stellarPublicKey },
+      config.JWT_SECRET,
+      { algorithm: "HS256", expiresIn: "1h", audience: config.JWT_AUDIENCE }
+    );
+    expectAppError(() => verifyToken(token), "INVALID_TOKEN");
+  });
+
+  it("rejects a token without an expiration claim", () => {
+    const token = jwt.sign(
+      { sub: USER.id, pk: USER.stellarPublicKey },
+      config.JWT_SECRET,
+      { algorithm: "HS256", issuer: config.JWT_ISSUER, audience: config.JWT_AUDIENCE }
+    );
+    expectAppError(() => verifyToken(token), "INVALID_TOKEN");
+  });
+
   it("rejects a malformed token", () => {
     expectAppError(() => verifyToken("not-a-jwt"), "MALFORMED_TOKEN");
   });

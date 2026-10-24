@@ -1695,7 +1695,7 @@ async function runCycleTask<T>(
       // The worker's injectable delay, so tests drive the backoff schedule
       // without real time passing (same pattern as the settlement loop).
       sleep: delayFn,
-      onRetry: ({ attempt, delayMs, reason }) => {
+      onRetry: ({ attempt, delayMs, reason, error }) => {
         recordTaskFailure(taskName);
         log.warn(
           {
@@ -1706,6 +1706,7 @@ async function runCycleTask<T>(
             outcome: "retry_scheduled",
             nextDelayMs: delayMs,
             reason,
+            err: error,
           },
           "worker cycle task retry scheduled"
        );
@@ -1743,6 +1744,7 @@ async function runCycleTask<T>(
         task: taskName,
         outcome: "dead_letter",
         reason: safeFailureMessage(error),
+        err: error,
       },
       "worker cycle task exhausted its retry budget"
     );
@@ -1771,10 +1773,11 @@ export async function runWorkerCycle(): Promise<void> {
     // Recover first: a restart should adopt the previous process's work before
     // looking for new jobs. The recovery sweeps are cycle tasks like any other,
     // so a transient database error during recovery is retried too.
-    await Promise.allSettled([
+    const recoveryResults = await Promise.allSettled([
       runCycleTask("recoverStaleSettlements", recoverStaleSettlements),
       runCycleTask("recoverStaleAnchorSessions", recoverStaleAnchorSessions),
     ]);
+    failed = recoveryResults.some((result) => result.status === "rejected");
 
     const taskResults = await Promise.allSettled([
       runCycleTask("processSubmittedSettlements", processSubmittedSettlements),
@@ -1794,7 +1797,7 @@ export async function runWorkerCycle(): Promise<void> {
 
     // A cycle is "failed" when any task exhausted its retry budget — exactly
     // the tasks that were previously swallowed by allSettled with no trace.
-    failed = taskResults.some((r) => r.status === "rejected");
+    failed = failed || taskResults.some((r) => r.status === "rejected");
   } finally {
     if (failed) {
       recordCycleFailure("one or more cycle tasks exhausted their retry budget");

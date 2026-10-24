@@ -82,6 +82,7 @@ export interface WorkerRetryOptions {
     delayMs: number;
     category: "transient" | "indeterminate" | "permanent";
     reason: string;
+    error: unknown;
   }) => void;
 }
 
@@ -123,7 +124,7 @@ export async function withRetry<T>(
       }
 
       const delayMs = retryDelayMs(attempt, policy);
-      options.onRetry?.({ attempt, delayMs, category, reason });
+      options.onRetry?.({ attempt, delayMs, category, reason, error });
       await sleep(delayMs);
     }
   }
