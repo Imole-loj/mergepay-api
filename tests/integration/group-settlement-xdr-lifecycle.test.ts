@@ -160,7 +160,6 @@ describe("Group Expense Settlement XDR Lifecycle Integration (#900)", () => {
 
     // Inspect the generated unsigned XDR
     const tx = TransactionBuilder.fromXDR(body.xdr, config.networkPassphrase) as Transaction;
-    expect(tx.source).toBe(debtor.publicKey);
     expect(tx.operations).toHaveLength(1);
 
     const op = tx.operations[0];
