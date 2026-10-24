@@ -8,8 +8,6 @@
  * - Dead-letter logging and database status transition to "failed"
  */
 import { createLogger } from "../lib/logger";
-import { audit } from "../services/audit";
-import { AuditAction } from "../services/audit-actions";
 import {
   classifyJobFailure,
   retryDelayMs,
@@ -113,26 +111,7 @@ export async function executeWorkerJobWithRetry<T>(
           });
         }
 
-        // Audit the dead-letter if requested or when no custom onDeadLetter was supplied
-        const shouldAuditDeadLetter = options.auditDeadLetter ?? !options.onDeadLetter;
-        if (shouldAuditDeadLetter) {
-          await audit({
-            userId: options.userId ?? null,
-            groupId: options.groupId ?? null,
-            actorType: "worker",
-            action: AuditAction.WORKER_TASK_DEAD_LETTER,
-            entityType: "worker_task",
-            entityId: jobId,
-            outcome: "failure",
-            metadata: {
-              task: taskName,
-              attempt,
-              maxAttempts: policy.maxAttempts,
-              category,
-              reason,
-            },
-          }).catch(() => undefined);
-        }
+        
 
         return {
           success: false,
