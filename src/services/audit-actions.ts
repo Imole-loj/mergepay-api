@@ -36,6 +36,8 @@ export const AuditAction = {
   TREASURY_CONFIRM: "treasury.confirm",
   TREASURY_CONFIRM_FAILED: "treasury.confirm.failed",
   TREASURY_SIGNER_VALIDATION: "treasury.signer_validation",
+  TREASURY_SIGNER_UPDATE: "treasury.signer.update",
+  TREASURY_MULTISIG_CONFIG_CHANGED: "treasury.multisig.config_changed",
   TREASURY_TRANSACTION_CONFIRMED: "treasury.transaction.confirmed",
   TREASURY_TRANSACTION_FAILED: "treasury.transaction.failed",
 
@@ -54,6 +56,7 @@ export const AuditAction = {
 
   // ── Settlements ─────────────────────────────────────────────────────
   SETTLEMENT_CREATED: "settlement.created",
+  SETTLEMENT_INITIATED: "settlement.created",
   EXPENSE_CREATE: "expense.create",
   EXPENSE_UPDATE: "expense.update",
   EXPENSE_DELETE: "expense.delete",
@@ -63,6 +66,7 @@ export const AuditAction = {
   SETTLEMENT_CONFIRM_REJECTED: "settlement.confirm.rejected",
   SETTLEMENT_XDR_SUBMITTED: "settlement.xdr_submitted",
   SETTLEMENT_CONFIRMED: "settlement.confirmed",
+  SETTLEMENT_FINALIZED: "settlement.confirmed",
   SETTLEMENT_FAILED: "settlement.failed",
   SETTLEMENT_RETRIED: "settlement.retried",
 

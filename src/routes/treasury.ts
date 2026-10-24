@@ -119,7 +119,7 @@ export default async function treasuryRoutes(app: FastifyInstance) {
         userId: auth.id,
         groupId: id,
         actorPublicKey: auth.stellarPublicKey,
-        action: AuditAction.TREASURY_ENABLE,
+        action: existing?.treasuryEnabled ? AuditAction.TREASURY_SIGNER_UPDATE : AuditAction.TREASURY_ENABLE,
         entityType: "group",
         entityId: id,
         outcome: "success",

@@ -407,3 +407,11 @@ export function calculateSimplifiedDebts(balances: NetBalance[]): Suggestion[] {
 export function isAllSettled(balances: NetBalance[]): boolean {
   return balances.every((b) => bigIntAbs(toStroops(b.net)) === 0n);
 }
+
+
+export {
+  auditSettlementInitiated,
+  auditSettlementFinalized,
+  type SettlementAuditParams,
+  type SettlementFinalizeAuditParams,
+} from "./audit";
