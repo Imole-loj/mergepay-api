@@ -1,3 +1,6 @@
+import { Errors } from "../errors";
+import { assetCodeSchema, assetIssuerSchema } from "../schemas/asset";
+import { mpMemoSchema } from "../lib/stellar-validation";
 /**
  * Shared Zod schemas for treasury multisig configuration and weight changes.
  *
@@ -178,3 +181,77 @@ export const treasurySignatureSubmitSchema = z
 export type TreasurySignatureSubmitInput = z.infer<
   typeof treasurySignatureSubmitSchema
 >;
+
+
+const DECIMAL_AMOUNT = /^\d+(\.\d+)?$/;
+
+/**
+ * Strict decimal amount schema for treasury multisig proposals:
+ * must be a positive decimal string (e.g. "100", "0.5").
+ */
+export const treasuryAmountSchema = z
+  .string({
+    required_error: "Amount is required",
+    invalid_type_error: "Amount must be a string",
+  })
+  .trim()
+  .min(1, "Amount is required")
+  .regex(DECIMAL_AMOUNT, "Amount must be a positive decimal number")
+  .refine(
+    (val) => {
+      const num = Number(val);
+      return !Number.isNaN(num) && num > 0;
+    },
+    "Amount must be greater than zero"
+  );
+
+/**
+ * Dedicated Zod schema for treasury multisig transaction proposal payloads (#874).
+ *
+ * Validates destination public key, positive decimal amount, asset code,
+ * optional asset issuer, memo, optional signers with weights, and optional threshold.
+ */
+export const treasuryMultisigProposalPayloadSchema = z
+  .object({
+    destination: stellarPublicKeySchema,
+    amount: treasuryAmountSchema,
+    assetCode: assetCodeSchema,
+    assetIssuer: assetIssuerSchema.nullable().optional(),
+    memo: mpMemoSchema.optional(),
+    signers: treasurySignersSchema.optional(),
+    threshold: stellarWeightSchema.optional(),
+    xdr: treasuryXdrSchema.optional(),
+    description: z.string().max(280).optional(),
+  })
+  .refine(
+    (data) => {
+      if (data.assetCode !== "XLM" && data.assetCode !== "native" && !data.assetIssuer) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "assetIssuer is required for non-native assets",
+      path: ["assetIssuer"],
+    }
+  );
+
+export type TreasuryMultisigProposalPayload = z.infer<
+  typeof treasuryMultisigProposalPayloadSchema
+>;
+
+/**
+ * Fastify preHandler validation hook for treasury multisig proposals (#874).
+ */
+export async function validateTreasuryProposalHook(req: any) {
+  const parsed = treasuryMultisigProposalPayloadSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    const pathStr = firstIssue?.path.join(".") || "payload";
+    throw Errors.badRequest(
+      "VALIDATION_ERROR",
+      `${pathStr}: ${firstIssue?.message ?? "Invalid proposal payload"}`
+    );
+  }
+  req.treasuryProposal = parsed.data;
+}
