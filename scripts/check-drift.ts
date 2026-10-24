@@ -1,5 +1,5 @@
 /**
- * Prisma Schema Drift & Migration Health Checker (#913).
+ * Prisma Schema Drift & Migration Health Checker (#913 / #878).
  *
  * Runs diagnostic checks to ensure:
  * 1. Prisma schema is syntactically and relationally valid (`prisma validate`).
@@ -8,6 +8,11 @@
  *
  * Emits clear diagnostic feedback suitable for both local development and CI runners.
  */
+
+import { execSync } from "node:child_process";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 export interface DriftCheckResult {
   validSchema: boolean;
@@ -56,4 +61,65 @@ export function formatDriftDiagnostics(options: {
     driftDetected,
     diagnostics,
   };
+}
+
+export function runDriftDiagnostics(options?: {
+  databaseUrl?: string;
+  execSyncFn?: (cmd: string, opts?: { env?: Record<string, string | undefined>; stdio?: string }) => string | Buffer;
+}): DriftCheckResult {
+  const runner = options?.execSyncFn ?? execSync;
+  const dbUrl = options?.databaseUrl ?? process.env.DATABASE_URL;
+
+  let schemaValid = false;
+  try {
+    runner("npx prisma validate", {
+      env: { ...process.env, DATABASE_URL: dbUrl ?? "postgresql://localhost:5432/mergepay_mock" },
+      stdio: "pipe",
+    });
+    schemaValid = true;
+  } catch {
+    schemaValid = false;
+  }
+
+  let migrationsSynced = false;
+  let driftDetected = false;
+
+  if (dbUrl) {
+    try {
+      runner("npx prisma migrate status", {
+        env: { ...process.env, DATABASE_URL: dbUrl },
+        stdio: "pipe",
+      });
+      migrationsSynced = true;
+    } catch {
+      migrationsSynced = false;
+    }
+
+    try {
+      runner('npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code', {
+        env: { ...process.env, DATABASE_URL: dbUrl },
+        stdio: "pipe",
+      });
+      driftDetected = false;
+    } catch {
+      driftDetected = true;
+    }
+  }
+
+  return formatDriftDiagnostics({
+    schemaValid,
+    migrationsSynced,
+    driftDetected,
+    dbUrlPresent: Boolean(dbUrl),
+  });
+}
+
+if (typeof require !== "undefined" && require.main === module) {
+  const result = runDriftDiagnostics();
+  for (const line of result.diagnostics) {
+    console.log(line);
+  }
+  if (!result.validSchema || result.driftDetected) {
+    process.exit(1);
+  }
 }
