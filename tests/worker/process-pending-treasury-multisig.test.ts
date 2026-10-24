@@ -75,9 +75,7 @@ describe("Background Worker: Process Pending Treasury Multisig Submissions (#895
       },
     ]);
 
-    (stellar.submitSigned as any).mockResolvedValue({
-      hash: "stellar_confirmed_tx_hash_123",
-    });
+    (stellar.submitSigned as any).mockResolvedValue("stellar_confirmed_tx_hash_123");
 
     const result = await processPendingTreasuryMultisig();
     expect(result.processed).toBe(1);

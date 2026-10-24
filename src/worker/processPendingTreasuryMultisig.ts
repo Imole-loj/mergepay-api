@@ -63,15 +63,7 @@ export async function processPendingTreasuryMultisig(params: {
       // Broadcast to Horizon if XDR exists
       let stellarTxHash = proposal.txHash;
       if (proposal.xdr) {
-        try {
-          const submissionResult = await stellar.submitSigned(proposal.xdr);
-          if (submissionResult?.hash) {
-            stellarTxHash = submissionResult.hash;
-          }
-        } catch (subErr) {
-          // Record failure on broadcast error
-          throw subErr;
-        }
+        stellarTxHash = await stellar.submitSigned(proposal.xdr);
       }
 
       // Mark submitted atomically
