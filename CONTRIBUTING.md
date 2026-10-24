@@ -162,3 +162,5 @@ The following environment variables can be used to configure integration tests:
 - If tests fail with network errors, check that the testnet is accessible.
 - If friendbot funding fails, the tests include retry logic with backoff.
 - Ensure the backend server is fully started before running integration tests.
+
+### Final Stage
