@@ -1,3 +1,4 @@
+import { audit } from "./audit";
 import { prisma } from "../db";
 import {
   balanceAssetKey,
@@ -218,4 +219,63 @@ export async function verifySettlementLimit(
   if (toStroops(settlementAmount) > debtStroops) {
     throw Errors.badRequest("OVER_SETTLEMENT", "Settlement amount exceeds outstanding debt balance");
   }
+}
+
+
+export interface MultiCurrencySettlementSummary {
+  groupId: string;
+  assetBalances: AssetBalancesWithSuggestions[];
+  calculatedAt: string;
+}
+
+/**
+ * Pure multi-currency balance and debt simplification engine.
+ * Computes individual balances and simplified settlement transfers per asset
+ * (XLM, USDC) without cross-asset netting.
+ */
+export function computeMultiCurrencyBalancesAndSimplifications(
+  shares: AssetBalanceShareRow[],
+  settlements: AssetBalanceSettlementRow[]
+): AssetBalancesWithSuggestions[] {
+  const assetBalances = computeNetBalancesByAsset(shares, settlements);
+  return assetBalances.map((ab) => ({
+    ...ab,
+    suggestions: suggestSettlements(ab.balances),
+  }));
+}
+
+/**
+ * Calculate multi-currency group expense balances and settlement suggestions.
+ * Writes an audit log record when an actor is provided.
+ */
+export async function calculateAndAuditGroupBalances(
+  groupId: string,
+  actor?: { type: "user" | "system" | "worker"; id?: string; publicKey?: string }
+): Promise<MultiCurrencySettlementSummary> {
+  const assetBalances = await loadGroupBalancesWithSuggestionsByAsset(groupId);
+  const now = new Date().toISOString();
+
+  if (actor) {
+    await audit({
+      action: "group.balances_calculated",
+      actorType: actor.type,
+      userId: actor.id ?? null,
+      actorPublicKey: actor.publicKey ?? null,
+      entityType: "group",
+      entityId: groupId,
+      groupId,
+      outcome: "success",
+      metadata: {
+        assetCount: assetBalances.length,
+        assets: assetBalances.map((a) => a.assetCode),
+        calculatedAt: now,
+      },
+    });
+  }
+
+  return {
+    groupId,
+    assetBalances,
+    calculatedAt: now,
+  };
 }
