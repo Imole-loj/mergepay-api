@@ -202,6 +202,81 @@ export async function listGroupExpenses<T extends { createdAt: Date; id: string 
   return { items, meta: { ...meta, total } };
 }
 
+/**
+ * Dedicated schema for group expense history with pagination and filtering.
+ */
+export const groupExpenseHistorySchema = paginationQuerySchema.extend({
+  asset: z.enum(FILTERABLE_ASSETS).optional(),
+  assetCode: z.string().optional(),
+  status: z.enum(EXPENSE_STATUSES).optional(),
+  startDate: z.string().datetime({ offset: true }).optional(),
+  endDate: z.string().datetime({ offset: true }).optional(),
+  fromDate: z.string().datetime().optional(),
+  toDate: z.string().datetime().optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+  includeTotal: z
+    .union([z.boolean(), z.enum(["true", "false"])])
+    .transform((value) => value === true || value === "true")
+    .optional(),
+});
+
+export type GroupExpenseHistoryQuery = z.infer<typeof groupExpenseHistorySchema>;
+
+/**
+ * List group expense history with cursor or offset-based pagination and filtering.
+ */
+export async function listGroupExpenseHistory<T extends { createdAt: Date; id: string }>(
+  groupId: string,
+  query: GroupExpenseHistoryQuery,
+  include: Prisma.ExpenseInclude
+): Promise<ExpenseListPage<T>> {
+  const start = query.startDate ?? query.fromDate;
+  const end = query.endDate ?? query.toDate;
+  assertValidRange(start, end);
+
+  const normalizedAsset = (query.asset ?? (query.assetCode ? (query.assetCode as "XLM" | "USDC") : undefined));
+  const filters = expenseFilters(groupId, {
+    asset: normalizedAsset,
+    status: query.status,
+    startDate: start,
+    endDate: end,
+  });
+
+  const position = requireCursor(query.cursor);
+  const cursorCondition = cursorFilter(position, query.order);
+  const where: Prisma.ExpenseWhereInput =
+    filters.length === 1
+      ? { groupId, ...cursorCondition }
+      : { AND: [...filters, cursorCondition] };
+
+  const takeCount = takeForPage(query.limit);
+  const skipCount = query.offset ?? undefined;
+
+  const rows = (await prisma.expense.findMany({
+    where,
+    include,
+    orderBy: cursorOrderBy(query.order),
+    take: takeCount,
+    skip: skipCount,
+  })) as unknown as T[];
+
+  const { items, meta } = buildPage(rows, query.limit, query.order);
+
+  const total = query.includeTotal
+    ? await prisma.expense.count({
+        where: filters.length === 1 ? { groupId } : { AND: filters },
+      })
+    : undefined;
+
+  return {
+    items,
+    meta: {
+      ...meta,
+      ...(total !== undefined ? { total } : {}),
+    },
+  };
+}
+
 export {
   expensePaymentIntent,
   validateExpenseXdr,

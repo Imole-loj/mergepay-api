@@ -15,12 +15,24 @@ import {
 } from "../lib/pagination";
 import { assetCodeSchema } from "../schemas/asset";
 
-const historyQuerySchema = paginationQuerySchema.extend({
+
+export const historyQuerySchema = paginationQuerySchema.extend({
   assetCode: assetCodeSchema.optional(),
+  asset: assetCodeSchema.optional(),
   status: z.string().optional(),
   fromDate: z.string().datetime().optional(),
   toDate: z.string().datetime().optional(),
+  startDate: z.string().datetime().optional(),
+  endDate: z.string().datetime().optional(),
+  groupId: z.string().optional(),
+  includeTotal: z
+    .union([z.boolean(), z.enum(["true", "false"])])
+    .transform((value) => value === true || value === "true")
+    .optional(),
+  offset: z.coerce.number().int().min(0).optional(),
 });
+
+export type HistoryQuery = z.infer<typeof historyQuerySchema>;
 
 export default async function historyRoutes(app: FastifyInstance) {
   app.addHook("preHandler", app.authenticate);
@@ -31,48 +43,59 @@ export default async function historyRoutes(app: FastifyInstance) {
     const position = requireCursor(query.cursor);
     const cursorCondition = cursorFilter(position, query.order);
 
-    const assetFilter = query.assetCode ? { assetCode: query.assetCode } : {};
+    const assetCode = query.assetCode ?? query.asset;
+    const assetFilter = assetCode ? { assetCode } : {};
+
+    const fromDate = query.fromDate ?? query.startDate;
+    const toDate = query.toDate ?? query.endDate;
 
     const dateFilter: Record<string, unknown> = {};
-    if (query.fromDate) {
-      dateFilter.createdAt = { gte: new Date(query.fromDate) };
+    if (fromDate) {
+      dateFilter.createdAt = { gte: new Date(fromDate) };
     }
-    if (query.toDate) {
+    if (toDate) {
       dateFilter.createdAt = {
         ...(dateFilter.createdAt as object | undefined),
-        lte: new Date(query.toDate),
+        lte: new Date(toDate),
       };
     }
 
     const takeCount = takeForPage(query.limit);
+    const skipCount = query.offset ?? undefined;
 
-    const [expenses, settlements] = await Promise.all([
+    const expenseUserFilter = query.groupId
+      ? { groupId: query.groupId }
+      : {
+          OR: [
+            { payerUserId: auth.id },
+            { shares: { some: { userId: auth.id } } },
+          ],
+        };
+
+    const settlementUserFilter = query.groupId
+      ? { groupId: query.groupId }
+      : { OR: [{ fromUserId: auth.id }, { toUserId: auth.id }] };
+
+    const [expenses, settlements, total] = await Promise.all([
       prisma.expense.findMany({
         where: {
           AND: [
-            {
-              OR: [
-                { payerUserId: auth.id },
-                { shares: { some: { userId: auth.id } } },
-              ],
-            },
+            expenseUserFilter,
             cursorCondition,
             assetFilter,
             dateFilter,
-            // `Expense` has no status column — settlement is tracked per
-            // participant on `ExpenseShare`. Filtering the expense row
-            // directly threw a Prisma validation error for any `?status=`.
             ...(query.status ? [expenseStatusFilter(query.status)] : []),
           ],
         },
         include: { payer: true, shares: { include: { user: true } } },
         orderBy: [{ createdAt: query.order }, { id: query.order }],
         take: takeCount,
+        skip: skipCount,
       }),
       prisma.settlement.findMany({
         where: {
           AND: [
-            { OR: [{ fromUserId: auth.id }, { toUserId: auth.id }] },
+            settlementUserFilter,
             cursorCondition,
             assetFilter,
             dateFilter,
@@ -82,7 +105,32 @@ export default async function historyRoutes(app: FastifyInstance) {
         include: { from: true, to: true },
         orderBy: [{ createdAt: query.order }, { id: query.order }],
         take: takeCount,
+        skip: skipCount,
       }),
+      query.includeTotal
+        ? Promise.all([
+            prisma.expense.count({
+              where: {
+                AND: [
+                  expenseUserFilter,
+                  assetFilter,
+                  dateFilter,
+                  ...(query.status ? [expenseStatusFilter(query.status)] : []),
+                ],
+              },
+            }),
+            prisma.settlement.count({
+              where: {
+                AND: [
+                  settlementUserFilter,
+                  assetFilter,
+                  dateFilter,
+                  ...(query.status ? [{ status: query.status }] : []),
+                ],
+              },
+            }),
+          ]).then(([eCount, sCount]) => eCount + sCount)
+        : Promise.resolve(undefined),
     ]);
 
     const merged: (CursorPosition & { type: "expense" | "settlement"; data: unknown })[] = [
@@ -116,7 +164,14 @@ export default async function historyRoutes(app: FastifyInstance) {
         type: r.type,
         ...(r.data as object),
       })),
-      meta: { nextCursor, hasMore, limit: query.limit, order: query.order },
+      meta: {
+        nextCursor,
+        hasMore,
+        limit: query.limit,
+        order: query.order,
+        ...(total !== undefined ? { total } : {}),
+      },
     };
   });
+
 }
