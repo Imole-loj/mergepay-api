@@ -186,4 +186,29 @@ describe("SEP-10 auth rate limiting (#352)", () => {
       String(policies.authChallenge.max - 1)
     );
   });
+
+  it("enforces rate limits on versioned prefix /api/v1/auth/challenge (#894)", async () => {
+    const account = Keypair.random().publicKey();
+    const versionedIp = "198.51.100.88";
+
+    await exhaust({
+      url: "/api/v1/auth/challenge",
+      payload: { account },
+      max: policies.authChallenge.max,
+      remoteAddress: versionedIp,
+      expectInBudget: (status) => expect(status).toBe(200),
+    });
+  });
+
+  it("enforces rate limits on versioned prefix /api/v1/auth/verify (#894)", async () => {
+    const versionedIp = "198.51.100.99";
+
+    await exhaust({
+      url: "/api/v1/auth/verify",
+      payload: {},
+      max: policies.authVerify.max,
+      remoteAddress: versionedIp,
+      expectInBudget: (status) => expect(status).toBeLessThan(500),
+    });
+  });
 });
