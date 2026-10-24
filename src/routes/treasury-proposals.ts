@@ -15,6 +15,7 @@
  */
 
 import { FastifyInstance } from "fastify";
+import { treasuryMultisigProposalPayloadSchema, validateTreasuryProposalHook } from "../validations/treasury";
 import { z } from "zod";
 import { prisma } from "../db";
 import { mpMemoSchema, stellarAccountIdSchema } from "../lib/stellar-validation";
@@ -62,7 +63,7 @@ export default async function treasuryProposalRoutes(app: FastifyInstance) {
     async (req) => {
     const auth = requireUser(req);
     const { groupId } = z.object({ groupId: z.string() }).parse(req.params);
-    const body = createBodySchema.parse(req.body);
+    const body = treasuryMultisigProposalPayloadSchema.parse(req.body);
 
     if (!isPositive(body.amount)) {
       throw Errors.badRequest("invalid_amount", "Amount must be positive");
