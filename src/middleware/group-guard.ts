@@ -29,6 +29,7 @@ import { requireUser } from "../plugins/auth";
 import {
   requireGroupRole,
   groupMembership,
+  GROUP_GUARD,
   type GroupRole,
   type GroupIdParam,
 } from "../plugins/group-access";
@@ -104,7 +105,7 @@ export function requireExpensePayerOrAdmin(
   const param = options.param ?? "id";
   const active = options.active !== false;
 
-  return async function expensePayerOrAdminGuard(req: FastifyRequest) {
+  const guard: preHandlerAsyncHookHandler = async function expensePayerOrAdminGuard(req: FastifyRequest) {
     const auth = requireUser(req);
     const params = (req.params ?? {}) as Record<string, string>;
     const expenseId = params[param];
@@ -133,6 +134,8 @@ export function requireExpensePayerOrAdmin(
       throw Errors.forbidden("Only the payer or an admin can modify or delete this expense");
     }
   };
+  (guard as any)[GROUP_GUARD] = true;
+  return guard;
 }
 
 // Aliases for explicit guard naming
