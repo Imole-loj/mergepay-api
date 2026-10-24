@@ -69,6 +69,8 @@ jobs:
         run: npm run prisma:validate
       - name: Deploy Prisma migrations
         run: npx prisma migrate deploy
+      - name: Check migration status
+        run: npm run prisma:status
       - name: Verify integration schema drift
         run: npm run prisma:check-drift
       - run: npm run test:integration
