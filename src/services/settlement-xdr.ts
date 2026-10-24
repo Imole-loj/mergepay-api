@@ -1,3 +1,13 @@
+import {
+  Account,
+  Asset,
+  BASE_FEE,
+  Memo,
+  Operation,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
+import { config } from "../config";
+import { memoText } from "./stellar";
 /**
  * Bind a wallet-signed envelope to the settlement intent the API created.
  *
@@ -101,4 +111,60 @@ export function assertSettlementConfirmable(settlement: {
       "This settlement has already been completed"
     );
   }
+}
+
+
+export interface DeterministicPaymentParams {
+  sourcePublicKey: string;
+  sourceSequence: string;
+  destination: string;
+  assetCode: string;
+  assetIssuer: string | null;
+  amount: string;
+  memoCode: string;
+  validitySeconds?: number;
+  minTime?: number;
+  maxTime?: number;
+  feeStroops?: number | string;
+}
+
+/**
+ * Deterministically constructs an unsigned Stellar payment XDR.
+ * Given identical inputs (including fixed timebounds), it yields identical XDR bytes
+ * and transaction hashes without requiring or handling any private key material.
+ */
+export function buildDeterministicSettlementPaymentXdr(
+  params: DeterministicPaymentParams
+): string {
+  const source = new Account(params.sourcePublicKey, params.sourceSequence);
+  const fee = params.feeStroops
+    ? String(params.feeStroops)
+    : String(Number(BASE_FEE) * 2);
+
+  const builder = new TransactionBuilder(source, {
+    fee,
+    networkPassphrase: config.networkPassphrase,
+    timebounds:
+      params.minTime !== undefined && params.maxTime !== undefined
+        ? { minTime: params.minTime, maxTime: params.maxTime }
+        : undefined,
+  })
+    .addOperation(
+      Operation.payment({
+        destination: params.destination,
+        asset:
+          params.assetCode.toUpperCase() === "XLM" || !params.assetIssuer
+            ? Asset.native()
+            : new Asset(params.assetCode, params.assetIssuer),
+        amount: params.amount,
+      })
+    )
+    .addMemo(Memo.text(memoText(params.memoCode)));
+
+  if (params.minTime === undefined || params.maxTime === undefined) {
+    builder.setTimeout(params.validitySeconds ?? 300);
+  }
+
+  const tx = builder.build();
+  return tx.toXDR();
 }
