@@ -319,3 +319,36 @@ export async function withHorizonRetry<T>(
 function defaultDelay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/**
+ * Execute a Horizon operation with exponential backoff retry handling.
+ * Throws immediately on permanent errors (client 4xx, tx_bad_auth, etc.).
+ * Retries on transient errors (429, 5xx, timeouts) up to maxAttempts.
+ */
+export async function executeWithHorizonExponentialBackoff<T>(
+  operation: string,
+  fn: () => Promise<T>,
+  options: {
+    policy?: Partial<HorizonRetryPolicy>;
+    onRetry?: (error: unknown, attempt: number, delayMs: number) => void;
+    delay?: (ms: number) => Promise<void>;
+  } = {}
+): Promise<T> {
+  const mergedPolicy: HorizonRetryPolicy = {
+    ...HORIZON_RETRY_POLICY,
+    ...options.policy,
+  };
+
+  const outcome = await withHorizonRetry(fn, {
+    classify: classifyHorizonError,
+    policy: mergedPolicy,
+    onRetry: options.onRetry,
+    delay: options.delay,
+  });
+
+  if (isRetrySuccess(outcome)) {
+    return outcome.value;
+  }
+
+  throw outcome.lastError;
+}
