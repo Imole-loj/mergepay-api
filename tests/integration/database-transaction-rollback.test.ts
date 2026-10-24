@@ -73,7 +73,7 @@ describe("PostgreSQL Integration - Transactional Consistency and Rollback (#889)
       const group = await tx.group.create({
         data: {
           name: "Tx Group",
-          createdById: user.id,
+          createdByUserId: user.id,
         },
       });
 
@@ -95,7 +95,7 @@ describe("PostgreSQL Integration - Transactional Consistency and Rollback (#889)
 
     expect(foundUser).not.toBeNull();
     expect(foundGroup).not.toBeNull();
-    expect(foundGroup?.createdById).toBe(created.user.id);
+    expect(foundGroup?.createdByUserId).toBe(created.user.id);
 
     // Clean up group
     await prisma.group.delete({ where: { id: created.group.id } });
