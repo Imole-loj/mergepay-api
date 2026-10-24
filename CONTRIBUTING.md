@@ -119,6 +119,8 @@ Run via `npm run prisma:check-drift`. This command:
 - Use the centralized `logAction` or `logActionTx` helpers from `src/services/audit.ts`
 - `logAction` — best-effort write that never breaks the operation; logs to `audit_logs` table and mirrors to the structured Pino auditor
 - `logActionTx` — atomic write inside a caller-managed transaction; audit row commits/rolls back with the mutation
+- `logAuditTrail` — non-blocking write for handlers with no transaction to join: it schedules the row and returns immediately, so the response never waits on the database
+- `auditTrail` (`src/middleware/audit.ts`) — route-level `onResponse` middleware for state-changing endpoints whose whole state change is the request itself (e.g. `PATCH /me`). It runs after the reply is delivered, records only 2xx state-changing methods, and never reads headers, tokens, or body values
 - Never log sensitive material (private keys, bearer tokens, signed XDRs) in audit metadata — the `sanitizeAuditMetadata` function strips these automatically
 - Asynchronous logging must not block HTTP response delivery — audit writes are best-effort and errors are swallowed
 

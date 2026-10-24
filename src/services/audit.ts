@@ -199,6 +199,29 @@ export async function logActionTx(
   await auditTx(tx, toAuditParams(params));
 }
 
+/**
+ * Record one state-changing action **without** delaying the response —
+ * issue #914's `logAuditTrail`.
+ *
+ * `logAction` / `logActionTx` are awaited by handlers that need their record
+ * to be durable before they answer (or to commit with the mutation). This is
+ * the non-blocking sibling for request paths where the row is observational:
+ * it starts the same sanitized, best-effort write and returns synchronously,
+ * so a database round trip never sits on the HTTP latency path. The write is
+ * scheduled rather than dropped — it still runs — and a failure surfaces only
+ * in the structured audit-event stream (src/lib/audit-logger.ts), never to the
+ * caller.
+ *
+ * Reach for {@link logActionTx} whenever the record must commit — or roll
+ * back — with the mutation it documents; use this when the mutation is
+ * already complete and the audit row only has to exist.
+ */
+export function logAuditTrail(params: LogActionParams): void {
+  // `audit` never rejects (it catches and mirrors its own failure), so the
+  // floating promise cannot become an unhandled rejection.
+  void audit(toAuditParams(params));
+}
+
 export interface GroupMemberAuditParams {
   userId: string;
   groupId: string;

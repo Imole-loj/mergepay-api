@@ -19,7 +19,8 @@ import {
   listWebhookDeliveries,
   webhookListQuerySchema,
 } from "../services/webhook-listing";
-import { audit } from "../services/audit";
+import { audit, logAuditTrail } from "../services/audit";
+import { auditTrail } from "../middleware/audit";
 
 const paramsSchema = z.object({ groupId: z.string().min(1) });
 const webhookParamsSchema = paramsSchema.extend({
@@ -245,6 +246,20 @@ async function webhookManagementRoutes(app: FastifyInstance) {
       },
     });
 
+    // Same record the group branch above writes — only the audience differs.
+    // Deliberately not awaited: a personal registration has no transaction to
+    // join, and the 201 must not wait on the audit row (issue #914). The write
+    // still runs, and a failure surfaces in the audit-event stream only.
+    logAuditTrail({
+      actorId: auth.id,
+      actorType: "user",
+      action: "webhook.register",
+      resourceType: "webhook",
+      resourceId: webhook.id,
+      outcome: "success",
+      metadata: { url: body.url, events: body.events, scope: "personal" },
+    });
+
     return reply.code(201).send({ webhook: publicWebhook(webhook, true) });
   });
 
@@ -341,7 +356,22 @@ async function webhookManagementRoutes(app: FastifyInstance) {
   // so it carries the tightest write budget in the table (#693).
   app.post(
     "/groups/:groupId/webhooks/:webhookId/test",
-    { ...rateLimited("webhookTest"), ...asMember },
+    {
+      ...rateLimited("webhookTest"),
+      ...asMember,
+      // Queueing a test delivery is an outbound state change with no
+      // transaction of its own, so the request-level middleware records it:
+      // actor, group, target endpoint, and timestamp — written after the reply
+      // is delivered, so it adds nothing to the request (issue #914).
+      onResponse: auditTrail({
+        action: "webhook.test",
+        resourceType: "webhook",
+        resourceId: (req) =>
+          (req.params as { webhookId?: string }).webhookId ?? null,
+        groupId: (req) =>
+          (req.params as { groupId?: string }).groupId ?? null,
+      }),
+    },
     async (req) => {
     const auth = requireUser(req);
     const { groupId, webhookId } = webhookParamsSchema.parse(req.params);

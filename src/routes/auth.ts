@@ -7,6 +7,7 @@ import { authenticateChallenge, buildChallenge } from "../services/sep10";
 import { signToken, requireUser } from "../plugins/auth";
 import { serializeUser } from "../serializers";
 import { audit } from "../services/audit";
+import { auditTrail } from "../middleware/audit";
 import {
   RefreshTokenError,
   issueRefreshToken,
@@ -333,6 +334,20 @@ export default async function authRoutes(app: FastifyInstance) {
     "/me",
     {
       preHandler: [app.authenticate],
+      // The profile write is the whole state change here, so the audit record
+      // comes from the middleware (issue #914): it runs after the reply is
+      // delivered, keeps the write off the latency path, and carries the actor,
+      // the target user, and the *names* of the fields that were sent — field
+      // names are not values, so nothing the caller wrote is copied into the
+      // trail.
+      onResponse: auditTrail({
+        action: "user.profile.update",
+        resourceType: "user",
+        resourceId: (req) => req.user?.id ?? null,
+        metadata: (req) => ({
+          fields: Object.keys((req.body as Record<string, unknown>) ?? {}),
+        }),
+      }),
       schema: {
         tags: ["Auth"],
         summary: "Update current user profile",
