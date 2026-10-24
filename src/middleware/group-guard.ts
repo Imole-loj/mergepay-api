@@ -89,3 +89,13 @@ export {
   type GroupIdParam,
   type MembershipContext,
 };
+
+/**
+ * Helper to retrieve the attached group member context from a request.
+ */
+export function groupMember(req: {
+  groupMember?: MembershipContext;
+  groupMembership?: MembershipContext;
+}): MembershipContext | undefined {
+  return req.groupMember ?? req.groupMembership;
+}
