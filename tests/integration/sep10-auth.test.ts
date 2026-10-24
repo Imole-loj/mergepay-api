@@ -254,7 +254,7 @@ describe("SEP-10 authentication integration", () => {
     const response = await verifyEnvelope(signedXdr);
 
     expect(response.statusCode).toBe(401);
-    expect(response.json().code).toBe("UNAUTHORIZED");
+    expect(response.json().code).toBe("INVALID_CHALLENGE");
     expect(mocks.prisma.user.upsert).not.toHaveBeenCalled();
   });
 
@@ -387,7 +387,7 @@ describe("SEP-10 authentication integration", () => {
     const response = await verifyEnvelope(challenge.json().transaction as string);
 
     expect(response.statusCode).toBe(401);
-    expect(response.json().code).toBe("UNAUTHORIZED");
+    expect(response.json().code).toBe("INVALID_SIGNATURE");
     expect(mocks.prisma.user.upsert).not.toHaveBeenCalled();
   });
 
@@ -412,7 +412,7 @@ describe("SEP-10 authentication integration", () => {
     const response = await verifyEnvelope("AAAAAA==");
 
     expect(response.statusCode).toBe(401);
-    expect(response.json().code).toBe("UNAUTHORIZED");
+    expect(response.json().code).toBe("INVALID_CHALLENGE");
     expect(mocks.prisma.user.upsert).not.toHaveBeenCalled();
   });
 
