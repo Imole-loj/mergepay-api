@@ -302,3 +302,37 @@ export async function auditMultisigActionTx(
     metadata: params.metadata,
   });
 }
+export interface GroupExpenseMutationAuditParams {
+  userId?: string | null;
+  actorPublicKey?: string | null;
+  clientIp?: string | null;
+  groupId: string;
+  action: string;
+  entityType: "group" | "expense" | "settlement" | "group_member";
+  entityId: string;
+  outcome?: AuditOutcome;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Structured audit logging helper for state-changing group and expense operations (#903).
+ * Records mutations with actor credentials, client IP, target entity, and sanitized metadata.
+ */
+export async function auditGroupExpenseMutation(
+  params: GroupExpenseMutationAuditParams
+): Promise<void> {
+  await audit({
+    userId: params.userId ?? null,
+    actorPublicKey: params.actorPublicKey ?? null,
+    groupId: params.groupId,
+    action: params.action,
+    entityType: params.entityType,
+    entityId: params.entityId,
+    outcome: params.outcome ?? "success",
+    actorType: params.userId ? "user" : "system",
+    metadata: {
+      ...(params.clientIp ? { clientIp: params.clientIp } : {}),
+      ...(params.metadata ?? {}),
+    },
+  });
+}
