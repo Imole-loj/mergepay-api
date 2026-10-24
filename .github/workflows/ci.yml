@@ -67,6 +67,10 @@ jobs:
       # Fail fast on an invalid Prisma schema before running integration tests
       - name: Validate Prisma schema
         run: npm run prisma:validate
+      - name: Deploy Prisma migrations
+        run: npx prisma migrate deploy
+      - name: Verify integration schema drift
+        run: npm run prisma:check-drift
       - run: npm run test:integration
 
   # Issue #671 — the migration history must be *deployable* and must *converge*
