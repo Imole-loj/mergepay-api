@@ -180,3 +180,84 @@ export async function modifyGroupMemberRole(
   }
   return prisma.$transaction((tx: any) => runWithTx(tx));
 }
+
+export interface RemoveGroupMemberOptions {
+  actorUserId: string;
+  groupId: string;
+  targetUserId: string;
+  tx?: any;
+}
+
+export interface RemoveGroupMemberResult {
+  userId: string;
+  groupId: string;
+  removedRole: string;
+}
+
+/**
+ * Remove a member from a group with mandatory audit logging and last-admin protection (#868).
+ *
+ * Atomically verifies authorization (actor must be admin), enforces the last-admin invariant,
+ * prevents self-removal, deletes membership, and records a GROUP_MEMBER_REMOVE audit log entry.
+ */
+export async function removeGroupMember(
+  options: RemoveGroupMemberOptions
+): Promise<RemoveGroupMemberResult> {
+  const { actorUserId, groupId, targetUserId } = options;
+
+  if (targetUserId === actorUserId) {
+    throw Errors.badRequest(
+      "SELF_REMOVE",
+      "Cannot remove yourself from the group; use the leave endpoint instead"
+    );
+  }
+
+  const runWithTx = async (tx: any) => {
+    await requireAdmin(groupId, actorUserId, tx);
+
+    const target = await tx.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId: targetUserId } },
+    });
+    if (!target) {
+      throw Errors.notFound("Member not found in this group");
+    }
+
+    if (target.role === "admin") {
+      const adminCount = await tx.groupMember.count({
+        where: { groupId, role: "admin" },
+      });
+      if (adminCount <= 1) {
+        throw Errors.conflict(
+          "last_admin",
+          "Cannot remove the last admin from the group"
+        );
+      }
+    }
+
+    await tx.groupMember.delete({
+      where: { groupId_userId: { groupId, userId: targetUserId } },
+    });
+
+    await auditGroupMemberActionTx(tx, {
+      userId: actorUserId,
+      groupId,
+      memberId: targetUserId,
+      action: AuditAction.GROUP_MEMBER_REMOVE,
+      metadata: {
+        targetUserId,
+        removedRole: target.role,
+      },
+    });
+
+    return {
+      userId: targetUserId,
+      groupId,
+      removedRole: target.role,
+    };
+  };
+
+  if (options.tx) {
+    return runWithTx(options.tx);
+  }
+  return prisma.$transaction((tx: any) => runWithTx(tx));
+}
