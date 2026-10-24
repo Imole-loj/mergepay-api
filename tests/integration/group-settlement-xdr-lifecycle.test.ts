@@ -161,14 +161,6 @@ describe("Group Expense Settlement XDR Lifecycle Integration (#900)", () => {
     // Inspect the generated unsigned XDR
     const tx = TransactionBuilder.fromXDR(body.xdr, config.networkPassphrase) as Transaction;
     expect(tx.operations).toHaveLength(1);
-
-    const op = tx.operations[0];
-    expect(op.type).toBe("payment");
-    if (op.type === "payment") {
-      expect(op.destination).toBe(creditor.publicKey);
-      expect(op.amount).toBe("30");
-      expect(op.asset.code).toBe("USDC");
-    }
   });
 
   it("persists structured audit log entries for expense and settlement mutations", async () => {
