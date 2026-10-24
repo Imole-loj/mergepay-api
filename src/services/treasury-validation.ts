@@ -192,3 +192,120 @@ export function snapshotToSignerConfig(snapshot: AccountSnapshot): ProposedSigne
     thresholds: snapshot.thresholds,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Treasury Multisig Proposal State Machine Validation (#902)
+// ---------------------------------------------------------------------------
+
+export type TreasuryProposalStatus =
+  | "pending"
+  | "awaiting_signatures"
+  | "ready"
+  | "submitted"
+  | "confirmed"
+  | "failed"
+  | "rejected";
+
+export const TERMINAL_PROPOSAL_STATUSES: ReadonlySet<string> = new Set([
+  "confirmed",
+  "failed",
+  "rejected",
+]);
+
+export const VALID_PROPOSAL_STATUS_TRANSITIONS: Record<string, ReadonlySet<string>> = {
+  pending: new Set(["awaiting_signatures", "ready", "submitted", "failed", "rejected"]),
+  awaiting_signatures: new Set(["ready", "submitted", "failed", "rejected"]),
+  ready: new Set(["submitted", "failed", "rejected"]),
+  submitted: new Set(["confirmed", "failed"]),
+  confirmed: new Set(),
+  failed: new Set(),
+  rejected: new Set(),
+};
+
+/**
+ * Check whether a treasury proposal state transition is valid according to the state machine.
+ */
+export function canTransitionProposalStatus(fromStatus: string, toStatus: string): boolean {
+  const from = fromStatus.toLowerCase();
+  const to = toStatus.toLowerCase();
+  const allowed = VALID_PROPOSAL_STATUS_TRANSITIONS[from];
+  return allowed ? allowed.has(to) : false;
+}
+
+/**
+ * Enforce that a treasury proposal transition is valid, throwing explicit 409 Conflict if not.
+ */
+export function assertValidProposalTransition(fromStatus: string, toStatus: string): void {
+  const from = fromStatus.toLowerCase();
+  const to = toStatus.toLowerCase();
+
+  if (TERMINAL_PROPOSAL_STATUSES.has(from)) {
+    throw Errors.conflict(
+      "proposal_terminal_state",
+      `Proposal is in terminal state '${fromStatus}' and cannot transition to '${toStatus}'`
+    );
+  }
+
+  if (!canTransitionProposalStatus(from, to)) {
+    throw Errors.conflict(
+      "invalid_state_transition",
+      `Invalid treasury proposal transition from '${fromStatus}' to '${toStatus}'`
+    );
+  }
+}
+
+/**
+ * Validate that a proposal is currently capable of accepting new signatures.
+ */
+export function assertCanAcceptSignatures(status: string): void {
+  const normalized = status.toLowerCase();
+  if (normalized === "submitted" || normalized === "confirmed") {
+    throw Errors.conflict(
+      "already_submitted",
+      "Proposal has already been submitted or confirmed"
+    );
+  }
+  if (normalized === "failed" || normalized === "rejected") {
+    throw Errors.conflict(
+      "proposal_failed",
+      "Proposal is in a failed or rejected state and cannot accept signatures"
+    );
+  }
+  if (!["pending", "awaiting_signatures", "ready"].includes(normalized)) {
+    throw Errors.conflict(
+      "invalid_proposal_state",
+      `Proposal in status '${status}' cannot accept signatures`
+    );
+  }
+}
+
+/**
+ * Ensure a signer has not already submitted an approval signature for this proposal.
+ */
+export function assertUniqueSignerSubmission(
+  existingSignerKeys: Iterable<string>,
+  signerPublicKey: string
+): void {
+  const existingSet = new Set(existingSignerKeys);
+  if (existingSet.has(signerPublicKey)) {
+    throw Errors.conflict(
+      "duplicate_signer_signature",
+      `Signer ${signerPublicKey} has already submitted a signature for this proposal`
+    );
+  }
+}
+
+/**
+ * Ensure a proposal has satisfied its signing threshold before broadcast execution.
+ */
+export function assertProposalExecutionThreshold(
+  accumulatedWeight: number,
+  requiredThreshold: number
+): void {
+  if (accumulatedWeight < requiredThreshold) {
+    throw Errors.badRequest(
+      "threshold_unmet",
+      `Proposal accumulated signature weight (${accumulatedWeight}) does not meet the required threshold (${requiredThreshold})`
+    );
+  }
+}
