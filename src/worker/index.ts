@@ -1944,3 +1944,10 @@ if (env.NODE_ENV !== "test") {
     .then(() => startWorker())
     .catch(() => process.exit(1));
 }
+
+export {
+  executeWorkerJobWithRetry,
+  DEFAULT_WORKER_JOB_POLICY,
+  type WorkerJobExecutionOptions,
+  type WorkerJobExecutionResult,
+} from "./job-retry-handler";
