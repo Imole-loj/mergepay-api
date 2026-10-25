@@ -18,10 +18,10 @@ export {
   sep24AccountSchema,
   sep24AmountSchema,
   sep24AssetCodeSchema,
+  sep24AssetCodeShapeSchema,
   sep24CallbackQuerySchema,
   sep24CompleteRequestSchema,
   sep24DepositRequestSchema,
-  sep24ExtraMetadataSchema,
   sep24InitQuerySchema,
   sep24InteractiveRequestSchema,
   sep24LangSchema,
@@ -53,10 +53,16 @@ export {
 import { z } from "zod";
 import { validateRequest } from "../middleware/validate-request";
 import {
+  sep24AccountSchema,
+  sep24AmountSchema,
+  sep24AssetCodeShapeSchema,
   sep24DepositRequestSchema,
-  sep24WithdrawRequestSchema,
   sep24InitQuerySchema,
+  sep24LangSchema,
+  sep24MemoSchema,
+  sep24MemoTypeSchema,
   sep24StellarTransactionHashSchema,
+  sep24WithdrawRequestSchema,
 } from "../validations/sep24";
 
 /**
@@ -127,6 +133,177 @@ export function validateSep24WithdrawalRequest(body: unknown) {
  */
 export function validateSep24InitQuery(query: unknown) {
   return sep24InitQuerySchema.parse(query);
+}
+
+/**
+ * Request validation middleware aliases for SEP-24 deposit and withdrawal endpoints (#807).
+ */
+export const sep24DepositValidationMiddleware = validateSep24Deposit;
+export const sep24WithdrawValidationMiddleware = validateSep24Withdraw;
+
+/**
+ * Creates a Fastify preHandler validation middleware for SEP-24 endpoints (#807).
+ */
+export function createSep24ValidationMiddleware(kind: "deposit" | "withdrawal") {
+  return kind === "deposit"
+    ? sep24DepositValidationMiddleware
+    : sep24WithdrawValidationMiddleware;
+}
+
+/**
+ * Dedicated Zod validation schema for SEP-24 deposit request parameters (#807).
+ * Validates wire format inputs (supporting snake_case & camelCase) and normalizes them.
+ */
+export const sep24DepositParamsSchema = z
+  .object({
+    asset_code: sep24AssetCodeShapeSchema.optional(),
+    assetCode: sep24AssetCodeShapeSchema.optional(),
+    account: sep24AccountSchema.optional(),
+    amount: sep24AmountSchema.optional(),
+    memo: sep24MemoSchema.optional(),
+    memo_type: sep24MemoTypeSchema.optional(),
+    memoType: sep24MemoTypeSchema.optional(),
+    lang: sep24LangSchema.optional(),
+    wallet_name: z.string().max(255).optional(),
+    walletName: z.string().max(255).optional(),
+    wallet_url: z.string().url().max(2048).optional(),
+    walletUrl: z.string().url().max(2048).optional(),
+    claimable_balance_supported: z.union([z.boolean(), z.enum(["true", "false"])]).optional(),
+    asset_issuer: sep24AccountSchema.nullable().optional(),
+    assetIssuer: sep24AccountSchema.nullable().optional(),
+  })
+  .passthrough()
+  .transform((data) => {
+    const rawAssetCode = data.asset_code ?? data.assetCode;
+    const memo = data.memo;
+    const memoType = data.memo_type ?? data.memoType;
+    const assetIssuer = data.asset_issuer ?? data.assetIssuer;
+    return {
+      ...data,
+      assetCode: rawAssetCode ? rawAssetCode.toUpperCase() : undefined,
+      memo,
+      memoType,
+      assetIssuer,
+    };
+  })
+  .superRefine((data, ctx) => {
+    if (!data.assetCode) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["asset_code"],
+        message: "asset_code is required",
+      });
+    }
+    if (data.assetCode === "XLM" && data.assetIssuer) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["asset_issuer"],
+        message: "XLM is a native asset and does not take an issuer",
+      });
+    }
+    if (data.memo && !data.memoType) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["memo_type"],
+        message: "memo_type is required when memo is supplied",
+      });
+    }
+    if (data.memoType && !data.memo) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["memo"],
+        message: "memo is required when memo_type is supplied",
+      });
+    }
+  });
+
+/**
+ * Dedicated Zod validation schema for SEP-24 withdrawal request parameters (#807).
+ * Requires amount and validates wire format inputs.
+ */
+export const sep24WithdrawParamsSchema = z
+  .object({
+    asset_code: sep24AssetCodeShapeSchema.optional(),
+    assetCode: sep24AssetCodeShapeSchema.optional(),
+    account: sep24AccountSchema.optional(),
+    amount: sep24AmountSchema.optional(),
+    dest: sep24AccountSchema.optional(),
+    dest_extra: z.string().max(255).optional(),
+    memo: sep24MemoSchema.optional(),
+    memo_type: sep24MemoTypeSchema.optional(),
+    memoType: sep24MemoTypeSchema.optional(),
+    lang: sep24LangSchema.optional(),
+    wallet_name: z.string().max(255).optional(),
+    walletName: z.string().max(255).optional(),
+    wallet_url: z.string().url().max(2048).optional(),
+    walletUrl: z.string().url().max(2048).optional(),
+    asset_issuer: sep24AccountSchema.nullable().optional(),
+    assetIssuer: sep24AccountSchema.nullable().optional(),
+  })
+  .passthrough()
+  .transform((data) => {
+    const rawAssetCode = data.asset_code ?? data.assetCode;
+    const memo = data.memo;
+    const memoType = data.memo_type ?? data.memoType;
+    const assetIssuer = data.asset_issuer ?? data.assetIssuer;
+    return {
+      ...data,
+      assetCode: rawAssetCode ? rawAssetCode.toUpperCase() : undefined,
+      memo,
+      memoType,
+      assetIssuer,
+    };
+  })
+  .superRefine((data, ctx) => {
+    if (!data.assetCode) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["asset_code"],
+        message: "asset_code is required",
+      });
+    }
+    if (!data.amount) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["amount"],
+        message: "amount is required for withdrawal",
+      });
+    }
+    if (data.assetCode === "XLM" && data.assetIssuer) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["asset_issuer"],
+        message: "XLM is a native asset and does not take an issuer",
+      });
+    }
+    if (data.memo && !data.memoType) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["memo_type"],
+        message: "memo_type is required when memo is supplied",
+      });
+    }
+    if (data.memoType && !data.memo) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["memo"],
+        message: "memo is required when memo_type is supplied",
+      });
+    }
+  });
+
+export type Sep24DepositParams = z.infer<typeof sep24DepositParamsSchema>;
+export type Sep24WithdrawParams = z.infer<typeof sep24WithdrawParamsSchema>;
+
+export const sep24DepositParametersSchema = sep24DepositParamsSchema;
+export const sep24WithdrawParametersSchema = sep24WithdrawParamsSchema;
+
+export function validateSep24DepositParams(data: unknown): Sep24DepositParams {
+  return sep24DepositParamsSchema.parse(data);
+}
+
+export function validateSep24WithdrawParams(data: unknown): Sep24WithdrawParams {
+  return sep24WithdrawParamsSchema.parse(data);
 }
 
 // -- deposit / withdrawal status callbacks ----------------------------------
