@@ -48,8 +48,8 @@ import {
   type Sep24WithdrawRequest,
 } from "../validations/sep24";
 import {
-  validateSep24Deposit,
-  validateSep24Withdraw,
+  sep24DepositValidationMiddleware,
+  sep24WithdrawValidationMiddleware,
   validateSep24DepositRequest,
   validateSep24WithdrawalRequest,
 } from "../schemas/sep24";
@@ -185,7 +185,7 @@ export default async function sep24Routes(app: FastifyInstance) {
   app.post(
     "/sep24/deposit",
     {
-      preHandler: [app.authenticate, validateSep24Deposit],
+      preHandler: [app.authenticate, sep24DepositValidationMiddleware],
       ...initLimit,
       schema: {
         tags: ["SEP-24"],
@@ -216,7 +216,7 @@ export default async function sep24Routes(app: FastifyInstance) {
   app.post(
     "/sep24/withdraw",
     {
-      preHandler: [app.authenticate, validateSep24Withdraw],
+      preHandler: [app.authenticate, sep24WithdrawValidationMiddleware],
       ...initLimit,
       schema: {
         tags: ["SEP-24"],
