@@ -27,6 +27,7 @@ import { requireAdmin, requireMembership } from "../services/access";
 import { treasurySignaturesService } from "../services/treasury-signatures";
 import { treasuryTxProposalCreateSchema } from "../validations/treasury";
 import { serializeTreasuryTxProposal } from "../serializers";
+import { openApiBody, openApiIdParams, openApiEnvelope, openApiErrorResponses } from "../lib/openapi";
 
 const signatureBodySchema = z.object({
   signedXdr: z.string().min(1),
@@ -43,7 +44,20 @@ export default async function treasurySignatureRoutes(app: FastifyInstance) {
   // bounded `description`.
   app.post(
     "/treasury/proposals",
-    rateLimited("treasuryPropose"),
+    {
+      ...rateLimited("treasuryPropose"),
+      schema: {
+        tags: ["Treasury"],
+        summary: "Submit external treasury proposal with rate limiting",
+        description:
+          "Records an externally built, unsigned Stellar transaction that spends from the group treasury. Rate limited under treasuryPropose policy (#803).",
+        body: openApiBody(treasuryTxProposalCreateSchema, { enforce: false }),
+        response: {
+          ...openApiEnvelope("proposal"),
+          ...openApiErrorResponses(400, 401, 403, 404, 429),
+        },
+      },
+    },
     async (req) => {
       const auth = requireUser(req);
       const body = treasuryTxProposalCreateSchema.parse(req.body);
@@ -89,7 +103,20 @@ export default async function treasurySignatureRoutes(app: FastifyInstance) {
   // -- POST /api/treasury/proposals/:id/signatures --------------------------
   app.post(
     "/treasury/proposals/:id/signatures",
-    rateLimited("treasurySubmit"),
+    {
+      ...rateLimited("treasurySubmit"),
+      schema: {
+        tags: ["Treasury"],
+        summary: "Submit signature for treasury proposal with rate limiting",
+        description:
+          "Submits a signed fragment for a pending treasury proposal. Rate limited under treasurySubmit policy (#803).",
+        params: openApiIdParams(),
+        body: openApiBody(signatureBodySchema, { enforce: false }),
+        response: {
+          ...openApiErrorResponses(400, 401, 403, 404, 409, 429),
+        },
+      },
+    },
     async (req) => {
       const auth = requireUser(req);
       const { id } = z.object({ id: z.string() }).parse(req.params);
