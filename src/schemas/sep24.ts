@@ -21,6 +21,13 @@ export {
   sep24CallbackQuerySchema,
   sep24CompleteRequestSchema,
   sep24DepositRequestSchema,
+  sep24DepositParamsSchema,
+  sep24WithdrawParamsSchema,
+  validateSep24DepositParams,
+  validateSep24WithdrawParams,
+  type Sep24DepositParams,
+  type Sep24WithdrawParams,
+
   sep24ExtraMetadataSchema,
   sep24InitQuerySchema,
   sep24InteractiveRequestSchema,
@@ -54,6 +61,13 @@ import { z } from "zod";
 import { validateRequest } from "../middleware/validate-request";
 import {
   sep24DepositRequestSchema,
+  sep24DepositParamsSchema,
+  sep24WithdrawParamsSchema,
+  validateSep24DepositParams,
+  validateSep24WithdrawParams,
+  type Sep24DepositParams,
+  type Sep24WithdrawParams,
+
   sep24WithdrawRequestSchema,
   sep24InitQuerySchema,
   sep24StellarTransactionHashSchema,
@@ -261,3 +275,5 @@ export function validateSep24InteractiveCallbackParams(
   }
   return sep24CallbackSchema.parse(params);
 }
+
+
