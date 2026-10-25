@@ -22,6 +22,7 @@ export {
   sep24CallbackQuerySchema,
   sep24CompleteRequestSchema,
   sep24DepositRequestSchema,
+  sep24ExtraMetadataSchema,
   sep24InitQuerySchema,
   sep24InteractiveRequestSchema,
   sep24LangSchema,
@@ -57,12 +58,12 @@ import {
   sep24AmountSchema,
   sep24AssetCodeShapeSchema,
   sep24DepositRequestSchema,
+  sep24WithdrawRequestSchema,
   sep24InitQuerySchema,
   sep24LangSchema,
   sep24MemoSchema,
   sep24MemoTypeSchema,
   sep24StellarTransactionHashSchema,
-  sep24WithdrawRequestSchema,
 } from "../validations/sep24";
 
 /**
@@ -136,12 +137,6 @@ export function validateSep24InitQuery(query: unknown) {
 }
 
 /**
- * Request validation middleware aliases for SEP-24 deposit and withdrawal endpoints (#807).
- */
-export const sep24DepositValidationMiddleware = validateSep24Deposit;
-export const sep24WithdrawValidationMiddleware = validateSep24Withdraw;
-
-/**
  * Creates a Fastify preHandler validation middleware for SEP-24 endpoints (#807).
  */
 export function createSep24ValidationMiddleware(kind: "deposit" | "withdrawal") {
@@ -154,7 +149,7 @@ export function createSep24ValidationMiddleware(kind: "deposit" | "withdrawal") 
  * Dedicated Zod validation schema for SEP-24 deposit request parameters (#807).
  * Validates wire format inputs (supporting snake_case & camelCase) and normalizes them.
  */
-export const sep24DepositParamsSchema = z
+const sep24DepositWireParamsSchema = z
   .object({
     asset_code: sep24AssetCodeShapeSchema.optional(),
     assetCode: sep24AssetCodeShapeSchema.optional(),
@@ -221,7 +216,7 @@ export const sep24DepositParamsSchema = z
  * Dedicated Zod validation schema for SEP-24 withdrawal request parameters (#807).
  * Requires amount and validates wire format inputs.
  */
-export const sep24WithdrawParamsSchema = z
+const sep24WithdrawWireParamsSchema = z
   .object({
     asset_code: sep24AssetCodeShapeSchema.optional(),
     assetCode: sep24AssetCodeShapeSchema.optional(),
@@ -291,6 +286,52 @@ export const sep24WithdrawParamsSchema = z
       });
     }
   });
+
+const sep24DepositRequestParamsSchema = z.object({
+  query: sep24InitQuerySchema.optional(),
+  body: sep24DepositRequestSchema,
+});
+
+const sep24WithdrawRequestParamsSchema = z.object({
+  query: sep24InitQuerySchema.optional(),
+  body: sep24WithdrawRequestSchema,
+});
+
+const isSep24RequestEnvelope = (value: unknown): value is { body: unknown } =>
+  typeof value === "object" && value !== null && "body" in value;
+
+/** Parse one of the two supported SEP-24 parameter shapes without masking its validation errors. */
+const parseSep24Params = <T>(
+  wireSchema: z.ZodType<T>,
+  requestSchema: z.ZodType<T>,
+) =>
+  z.preprocess((input, ctx) => {
+    const schema = isSep24RequestEnvelope(input) ? requestSchema : wireSchema;
+    const parsed = schema.safeParse(input);
+    if (!parsed.success) {
+      parsed.error.issues.forEach((issue) => ctx.addIssue(issue));
+      return z.NEVER;
+    }
+    return parsed.data;
+  }, z.any());
+
+type Sep24DepositParamsOutput =
+  | z.infer<typeof sep24DepositWireParamsSchema>
+  | z.infer<typeof sep24DepositRequestParamsSchema>;
+type Sep24WithdrawParamsOutput =
+  | z.infer<typeof sep24WithdrawWireParamsSchema>
+  | z.infer<typeof sep24WithdrawRequestParamsSchema>;
+
+/** Accept both the SEP-24 wire shape and the request-envelope shape used by route callers. */
+export const sep24DepositParamsSchema = parseSep24Params(
+  sep24DepositWireParamsSchema,
+  sep24DepositRequestParamsSchema,
+) as z.ZodType<Sep24DepositParamsOutput>;
+
+export const sep24WithdrawParamsSchema = parseSep24Params(
+  sep24WithdrawWireParamsSchema,
+  sep24WithdrawRequestParamsSchema,
+) as z.ZodType<Sep24WithdrawParamsOutput>;
 
 export type Sep24DepositParams = z.infer<typeof sep24DepositParamsSchema>;
 export type Sep24WithdrawParams = z.infer<typeof sep24WithdrawParamsSchema>;
@@ -442,3 +483,5 @@ export function validateSep24InteractiveCallbackParams(
   }
   return sep24CallbackSchema.parse(params);
 }
+
+

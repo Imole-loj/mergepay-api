@@ -446,3 +446,31 @@ export type Sep24WithdrawalRequestBody = z.infer<
   typeof sep24WithdrawalRequestBodySchema
 >;
 export type Sep24WithdrawalParams = z.infer<typeof sep24WithdrawalParamsSchema>;
+
+
+/**
+ * Zod validation schema for SEP-24 deposit request parameters (#799).
+ */
+export const sep24DepositParamsSchema = z.object({
+  query: sep24InitQuerySchema.optional(),
+  body: sep24DepositRequestSchema,
+});
+
+/**
+ * Zod validation schema for SEP-24 withdrawal request parameters (#799).
+ */
+export const sep24WithdrawParamsSchema = z.object({
+  query: sep24InitQuerySchema.optional(),
+  body: sep24WithdrawRequestSchema,
+});
+
+export type Sep24DepositParams = z.infer<typeof sep24DepositParamsSchema>;
+export type Sep24WithdrawParams = z.infer<typeof sep24WithdrawParamsSchema>;
+
+export function validateSep24DepositParams(data: unknown): Sep24DepositParams {
+  return sep24DepositParamsSchema.parse(data);
+}
+
+export function validateSep24WithdrawParams(data: unknown): Sep24WithdrawParams {
+  return sep24WithdrawParamsSchema.parse(data);
+}
