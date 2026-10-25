@@ -7,6 +7,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import { buildChallenge, authenticateChallenge } from "../services/sep10";
+import { classifySep10Error } from "../services/auth";
 import {
   sep10ChallengeRequestSchema,
   sep10ChallengeQuerySchema,
@@ -91,7 +92,23 @@ export default async function sep10Routes(app: FastifyInstance) {
     },
     async (req: any) => {
       const { transaction } = req.sep10Verify;
-      return authenticateChallenge(transaction);
+      try {
+        const result = await authenticateChallenge(transaction);
+        req.log.info({ sep10Account: result.account, ip: req.ip }, "SEP-10 challenge verified successfully");
+        return result;
+      } catch (err) {
+        const classified = classifySep10Error(err);
+        req.log.warn(
+          {
+            authFailure: "sep10_verify_failed",
+            errorCode: classified.code,
+            errorMessage: classified.message,
+            ip: req.ip,
+          },
+          "SEP-10 challenge verification failed"
+        );
+        throw classified;
+      }
     }
   );
 }
