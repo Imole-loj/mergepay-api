@@ -64,7 +64,6 @@ import {
   sep24MemoSchema,
   sep24MemoTypeSchema,
   sep24StellarTransactionHashSchema,
-  sep24WithdrawRequestSchema,
 } from "../validations/sep24";
 
 /**
@@ -136,12 +135,6 @@ export function validateSep24WithdrawalRequest(body: unknown) {
 export function validateSep24InitQuery(query: unknown) {
   return sep24InitQuerySchema.parse(query);
 }
-
-/**
- * Request validation middleware aliases for SEP-24 deposit and withdrawal endpoints (#807).
- */
-export const sep24DepositValidationMiddleware = validateSep24Deposit;
-export const sep24WithdrawValidationMiddleware = validateSep24Withdraw;
 
 /**
  * Creates a Fastify preHandler validation middleware for SEP-24 endpoints (#807).
