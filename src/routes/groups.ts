@@ -6,7 +6,7 @@ import { config } from "../config";
 import { Errors } from "../errors";
 import { requireUser } from "../plugins/auth";
 import { requireMembership, requireAdmin } from "../services/access";
-import { groupMembership, requireGroupAdmin, requireGroupMember } from "../middleware";
+import { groupMembership, requireGroupAdmin, requireGroupMember, groupAdminAudit } from "../middleware";
 import { stellar } from "../services/stellar";
 import { inviteCode } from "../services/codes";
 import { auditGroupMemberActionTx, auditTx, logActionTx } from "../services/audit";
@@ -374,6 +374,10 @@ req.log.info({ userId: auth.id, groupId: created.id, action: "group.create" }, "
   app.patch(
     "/groups/:id",
     {
+      onResponse: groupAdminAudit({
+        action: "group.settings.update",
+        resourceType: "group",
+      }),
       // Strict: settings may only be changed by an admin of a *live* group
       // (archived groups are read-only, issue #648).
       preHandler: requireGroupAdmin({ param: "id", active: true }),
@@ -683,6 +687,10 @@ req.log.info({ userId: auth.id, groupId: created.id, action: "group.create" }, "
   app.patch(
     "/groups/:id/members/:memberId",
     {
+      onResponse: groupAdminAudit({
+        action: "group.member.role_update",
+        resourceType: "group_member",
+      }),
       preHandler: requireGroupAdmin({ param: "id", active: true }),
       schema: {
         tags: ["Groups"],
@@ -737,6 +745,10 @@ req.log.info({ userId: auth.id, groupId: created.id, action: "group.create" }, "
   app.delete(
     "/groups/:id/members/:memberId",
     {
+      onResponse: groupAdminAudit({
+        action: "group.member.remove",
+        resourceType: "group_member",
+      }),
       preHandler: requireGroupAdmin({ param: "id", active: true }),
       schema: {
         tags: ["Groups"],
@@ -824,6 +836,10 @@ req.log.info({ userId: auth.id, groupId: created.id, action: "group.create" }, "
   app.post(
     "/groups/:id/members/role",
     {
+      onResponse: groupAdminAudit({
+        action: "group.member.role_update",
+        resourceType: "group_member",
+      }),
       preHandler: requireGroupAdmin({ param: "id", active: true }),
       schema: {
         tags: ["Groups"],
