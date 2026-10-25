@@ -88,6 +88,9 @@ export const validateSep24Withdraw = validateRequest({
   body: sep24WithdrawRequestSchema,
 });
 
+export const validateSep24DepositMiddleware = validateSep24Deposit;
+export const validateSep24WithdrawMiddleware = validateSep24Withdraw;
+
 /**
  * Dedicated schema for SEP-24 deposit initiation parameters.
  */
