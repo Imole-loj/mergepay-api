@@ -51,7 +51,58 @@ function zodIssueField(issue: ZodError["errors"][number] | undefined): string {
   return issue.path.join(".");
 }
 
-export default fp(async function errorHandlerPlugin(app: FastifyInstance) {  app.setErrorHandler((err: Error, req: FastifyRequest, reply: FastifyReply) => {
+/**
+ * Format any error into a standardized error response object.
+ * Returns { error: { code, message, details?, issues?, timestamp, requestId }, code, message, requestId }.
+ */
+export function serializeError(
+  err: unknown,
+  requestId: string = "req-unknown"
+): ReturnType<typeof formatErrorResponse> {
+  if (err === null || err === undefined) {
+    return formatErrorResponse("INTERNAL_ERROR", "Something went wrong.", requestId);
+  }
+
+  if (err instanceof ZodError) {
+    const details = err.errors.map((e) => ({
+      field: zodIssueField(e),
+      message: e.message,
+      code: e.code,
+    }));
+    const issues = err.errors.map((e) => ({
+      path: e.path,
+      message: e.message,
+      code: e.code,
+    }));
+    const first = err.errors[0];
+    const field = zodIssueField(first);
+    const message = field ? `${field}: ${first.message}` : first?.message ?? "Validation failed";
+    return formatErrorResponse("VALIDATION_ERROR", message, requestId, details, issues);
+  }
+
+  if (err instanceof AppError) {
+    return formatErrorResponse(err.code, err.message, requestId, err.details);
+  }
+
+  const limitError = toRequestLimitError(err);
+  if (limitError) {
+    return formatErrorResponse(limitError.code, limitError.message, requestId);
+  }
+
+  const prismaError = toPrismaError(err);
+  if (prismaError) {
+    return formatErrorResponse(prismaError.code, prismaError.message, requestId, prismaError.details);
+  }
+
+  if ((err as any).statusCode && (err as any).statusCode < 500) {
+    return formatErrorResponse("BAD_REQUEST", (err as Error).message || "Bad Request", requestId);
+  }
+
+  return formatErrorResponse("INTERNAL_ERROR", "Something went wrong.", requestId);
+}
+
+export const errorHandlerPlugin = fp(async function errorHandlerPlugin(app: FastifyInstance) {
+  app.setErrorHandler((err: Error, req: FastifyRequest, reply: FastifyReply) => {
     const requestId = req.id as string;
 
     // A route may throw something that is not an Error at all — `throw null`,
@@ -299,3 +350,5 @@ export default fp(async function errorHandlerPlugin(app: FastifyInstance) {  app
     );
   });
 });
+
+export default errorHandlerPlugin;
