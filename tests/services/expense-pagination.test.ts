@@ -82,7 +82,22 @@ describe("Group Expense Pagination & Filtering (#912)", () => {
 
     it("rejects unknown query parameters (strict mode)", () => {
       expect(() =>
-        expenseListQuerySchema.parse({ page: 3 })
+        expenseListQuerySchema.parse({ unknownField: "bad" })
+      ).toThrow();
+    });
+
+    it("accepts valid page and categoryId query parameters (#800)", () => {
+      const result = expenseListQuerySchema.parse({
+        page: 2,
+        categoryId: "travel_meals",
+      });
+      expect(result.page).toBe(2);
+      expect(result.categoryId).toBe("travel_meals");
+    });
+
+    it("rejects invalid page number below 1", () => {
+      expect(() =>
+        expenseListQuerySchema.parse({ page: 0 })
       ).toThrow();
     });
 

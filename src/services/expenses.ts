@@ -17,6 +17,7 @@ import { Errors } from "../errors";
 import {
   buildPage,
   cursorFilter,
+  DEFAULT_PAGE_SIZE,
   cursorOrderBy,
   paginationQuerySchema,
   requireCursor,
@@ -60,6 +61,8 @@ export const expenseListQuerySchema = paginationQuerySchema.extend({
   status: z.enum(EXPENSE_STATUSES).optional(),
   startDate: z.string().datetime({ offset: true }).optional(),
   endDate: z.string().datetime({ offset: true }).optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  categoryId: z.string().min(1).max(64).optional(),
   /**
    * Opt-in total count. Counting a filtered set is a second query over every
    * matching row, which the pagination contract deliberately avoids paying on
@@ -76,7 +79,11 @@ export type ExpenseListQuery = z.infer<typeof expenseListQuerySchema>;
 /** Page of expenses plus its metadata, with `total` only when requested. */
 export interface ExpenseListPage<T> {
   items: T[];
-  meta: PageMeta & { total?: number };
+  meta: PageMeta & {
+    total?: number;
+    page?: number;
+    totalPages?: number;
+  };
 }
 
 /**
@@ -142,7 +149,7 @@ export function assertValidRange(
  */
 export function expenseFilters(
   groupId: string,
-  query: Pick<ExpenseListQuery, "asset" | "status" | "startDate" | "endDate">
+  query: Pick<ExpenseListQuery, "asset" | "status" | "startDate" | "endDate" | "categoryId">
 ): Prisma.ExpenseWhereInput[] {
   return [
     { groupId },
@@ -150,6 +157,16 @@ export function expenseFilters(
     ...(query.status ? [expenseStatusFilter(query.status)] : []),
     ...(query.startDate || query.endDate
       ? [dateFilter(query.startDate, query.endDate)]
+      : []),
+    ...(query.categoryId
+      ? [
+          {
+            OR: [
+              { description: { contains: query.categoryId, mode: "insensitive" as Prisma.QueryMode } },
+              { memo: { equals: query.categoryId } },
+            ],
+          },
+        ]
       : []),
   ];
 }
@@ -167,8 +184,45 @@ export async function listGroupExpenses<T extends { createdAt: Date; id: string 
 ): Promise<ExpenseListPage<T>> {
   assertValidRange(query.startDate, query.endDate);
 
-  const position = requireCursor(query.cursor);
   const filters = expenseFilters(groupId, query);
+  const whereFilters: Prisma.ExpenseWhereInput =
+    filters.length === 1 ? { groupId } : { AND: filters };
+
+  // Offset page-based pagination
+  if (query.page !== undefined) {
+    const page = query.page;
+    const limit = query.limit ?? DEFAULT_PAGE_SIZE;
+    const skip = (page - 1) * limit;
+
+    const [rows, total] = await Promise.all([
+      prisma.expense.findMany({
+        where: whereFilters,
+        include,
+        orderBy: cursorOrderBy(query.order),
+        skip,
+        take: limit,
+      }),
+      prisma.expense.count({
+        where: whereFilters,
+      }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+    return {
+      items: rows as unknown as T[],
+      meta: {
+        page,
+        totalPages,
+        total,
+        limit,
+        hasMore: page < totalPages,
+        nextCursor: null,
+        order: query.order,
+      },
+    };
+  }
+
+  const position = requireCursor(query.cursor);
 
   // With no filters beyond the group scope, the query keeps the flat shape it
   // has always had (`{ groupId, ...cursor }`). Only a filtered request pays for
@@ -197,7 +251,7 @@ export async function listGroupExpenses<T extends { createdAt: Date; id: string 
   // Counted over the filters alone — the cursor describes where this page
   // starts, so including it would count only the remainder of the scan.
   const total = await prisma.expense.count({
-    where: filters.length === 1 ? { groupId } : { AND: filters },
+    where: whereFilters,
   });
   return { items, meta: { ...meta, total } };
 }
