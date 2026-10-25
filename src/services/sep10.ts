@@ -335,7 +335,7 @@ interface ChallengeOperation {
  * operation. Returns null when the operation is missing or not a manageData
  * type.
  */
-function extractHomeDomain(tx: Transaction): string | null {
+export function extractHomeDomain(tx: Transaction): string | null {
   const operations = tx.operations as ChallengeOperation[];
   const authOp = operations[0];
   if (!authOp || authOp.type !== "manageData" || typeof authOp.name !== "string") {
@@ -485,6 +485,49 @@ function firstOperationAccount(tx: Transaction): string | undefined {
  * two tolerances a window happened to fall between. The SDK's message is never
  * surfaced; it can name internal details such as the server account.
  */
+
+/**
+ * Validate that the challenge transaction contains the configured home domain.
+ * Refactored helper function to strictly validate home domain parameter (#632).
+ */
+export function validateChallengeHomeDomain(
+  tx: Transaction,
+  expectedDomain: string = config.SEP10_HOME_DOMAIN
+): string {
+  const homeDomain = extractHomeDomain(tx);
+  if (!homeDomain || homeDomain.toLowerCase() !== expectedDomain.toLowerCase()) {
+    homeDomainMismatch();
+  }
+  return homeDomain;
+}
+
+/**
+ * Explicit check for multiple required signers and threshold weights (#632).
+ * Verifies that the signed transaction satisfies the account's medium threshold
+ * using valid ed25519 signers.
+ */
+export function validateChallengeSignerThresholds(
+  signedXdr: string,
+  serverAccount: string,
+  threshold: number,
+  signers: { key: string; weight: number }[],
+  homeDomain: string = config.SEP10_HOME_DOMAIN,
+  webAuthDomain: string = config.WEB_AUTH_DOMAIN
+): string[] {
+  const eligibleSigners = challengeSigners(signers);
+  const effectiveThreshold = threshold > 0 ? threshold : 1;
+
+  return WebAuth.verifyChallengeTxThreshold(
+    signedXdr,
+    serverAccount,
+    config.networkPassphrase,
+    effectiveThreshold,
+    eligibleSigners,
+    homeDomain,
+    webAuthDomain
+  );
+}
+
 function readChallenge(
   signedXdr: string,
   serverAccount: string
@@ -523,9 +566,7 @@ function readChallenge(
   }
   validateChallengeTimeBounds(bounds, undefined, account);
 
-  if (homeDomain.toLowerCase() !== config.SEP10_HOME_DOMAIN.toLowerCase()) {
-    homeDomainMismatch();
-  }
+  validateChallengeHomeDomain(tx, config.SEP10_HOME_DOMAIN);
 
   try {
     return WebAuth.readChallengeTx(
@@ -713,13 +754,11 @@ export async function authenticateChallenge(signedXdr: string): Promise<Verified
         config.WEB_AUTH_DOMAIN
       );
     } else {
-      WebAuth.verifyChallengeTxThreshold(
+      validateChallengeSignerThresholds(
         signedXdr,
         serverAccount,
-        config.networkPassphrase,
-        // A medium threshold of 0 still demands at least one real signature.
         snapshot.thresholds.med || 1,
-        challengeSigners(snapshot.signers),
+        snapshot.signers,
         config.SEP10_HOME_DOMAIN,
         config.WEB_AUTH_DOMAIN
       );
