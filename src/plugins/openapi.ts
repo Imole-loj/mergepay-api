@@ -64,6 +64,11 @@ export default fp(async function openAPIPlugin(app: FastifyInstance) {
           description:
             "Multi-signature treasury management, deposit/withdraw proposals, and signatures",
         },
+        {
+          name: "System",
+          description:
+            "System health checks, readiness probes, and liveness endpoints",
+        },
       ],
       components: {
         securitySchemes: {

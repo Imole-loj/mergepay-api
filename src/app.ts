@@ -457,7 +457,27 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     status: "ok",
     timestamp: new Date().toISOString(),
   });
-  app.get("/health/live", liveness);
+  app.get(
+    "/health/live",
+    {
+      schema: {
+        tags: ["System"],
+        summary: "Health liveness check",
+        description: "Lightweight liveness probe indicating whether the API server process is running.",
+        response: {
+          200: {
+            description: "Server process is alive",
+            type: "object",
+            properties: {
+              status: { type: "string", example: "ok" },
+              timestamp: { type: "string", format: "date-time" },
+            },
+          },
+        },
+      },
+    },
+    liveness
+  );
 
   const { getDeepHealth } = await import("./services/health.js");
   app.get("/health/deep", async (request, reply) => {
