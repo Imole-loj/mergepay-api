@@ -297,16 +297,41 @@ const sep24WithdrawRequestParamsSchema = z.object({
   body: sep24WithdrawRequestSchema,
 });
 
+const isSep24RequestEnvelope = (value: unknown): value is { body: unknown } =>
+  typeof value === "object" && value !== null && "body" in value;
+
+/** Parse one of the two supported SEP-24 parameter shapes without masking its validation errors. */
+const parseSep24Params = <T>(
+  wireSchema: z.ZodType<T>,
+  requestSchema: z.ZodType<T>,
+) =>
+  z.preprocess((input, ctx) => {
+    const schema = isSep24RequestEnvelope(input) ? requestSchema : wireSchema;
+    const parsed = schema.safeParse(input);
+    if (!parsed.success) {
+      parsed.error.issues.forEach((issue) => ctx.addIssue(issue));
+      return z.NEVER;
+    }
+    return parsed.data;
+  }, z.any());
+
+type Sep24DepositParamsOutput =
+  | z.infer<typeof sep24DepositWireParamsSchema>
+  | z.infer<typeof sep24DepositRequestParamsSchema>;
+type Sep24WithdrawParamsOutput =
+  | z.infer<typeof sep24WithdrawWireParamsSchema>
+  | z.infer<typeof sep24WithdrawRequestParamsSchema>;
+
 /** Accept both the SEP-24 wire shape and the request-envelope shape used by route callers. */
-export const sep24DepositParamsSchema = z.union([
+export const sep24DepositParamsSchema = parseSep24Params(
   sep24DepositWireParamsSchema,
   sep24DepositRequestParamsSchema,
-]);
+) as z.ZodType<Sep24DepositParamsOutput>;
 
-export const sep24WithdrawParamsSchema = z.union([
+export const sep24WithdrawParamsSchema = parseSep24Params(
   sep24WithdrawWireParamsSchema,
   sep24WithdrawRequestParamsSchema,
-]);
+) as z.ZodType<Sep24WithdrawParamsOutput>;
 
 export type Sep24DepositParams = z.infer<typeof sep24DepositParamsSchema>;
 export type Sep24WithdrawParams = z.infer<typeof sep24WithdrawParamsSchema>;
