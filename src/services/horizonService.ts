@@ -8,7 +8,12 @@
  *
  * Horizon I/O is kept in this module so tests can mock a single dependency.
  */
-import { Horizon, Memo } from "@stellar/stellar-sdk";
+import { Horizon } from "@stellar/stellar-sdk";
+export {
+  classifyHorizonError,
+  horizonRetryDelayMs,
+  type HorizonRetryPolicy,
+} from "./horizon-retry";
 import { config } from "../config";
 import { Errors } from "../errors";
 import { createLogger } from "../lib/logger";
@@ -81,32 +86,119 @@ function sleep(ms: number): Promise<void> {
  * @throws The last error after the budget is exhausted, or immediately for
  *   a non-retryable classification.
  */
+export interface HorizonCallRetryOptions {
+  policy?: Partial<HorizonRetryPolicy>;
+  timeoutMs?: number;
+  delay?: (ms: number) => Promise<void>;
+  onRetry?: (error: unknown, attempt: number, delayMs: number) => void;
+}
+
+/**
+ * Resilient retry wrapper with exponential backoff and timeout handling for Stellar Horizon service calls (#805).
+ *
+ * Encapsulates:
+ * - Deadline timeout management via withTimeout
+ * - Horizon error classification (transient vs permanent vs indeterminate)
+ * - Exponential backoff with jitter
+ * - Pino logging of retry attempts, next attempt, delay, and reason
+ * - Immediate failure without retries for non-retryable 4xx client errors (400 Bad Request, etc.)
+ */
+export async function withHorizonCallRetry<T>(
+  operation: string,
+  fn: (srv: Horizon.Server) => Promise<T>,
+  options?: HorizonCallRetryOptions
+): Promise<T> {
+  const policy: HorizonRetryPolicy = {
+    ...readRetryPolicy(),
+    ...options?.policy,
+  };
+  const timeoutMs = options?.timeoutMs ?? config.HORIZON_STATUS_TIMEOUT_MS;
+  const srv = server();
+
+  const outcome = await withHorizonRetry(
+    () => withTimeout(operation, timeoutMs, async () => fn(srv)),
+    {
+      classify: classifyHorizonError,
+      policy,
+      onRetry: (error, attempt, delayMs) => {
+        log.warn(
+          {
+            provider: "horizon",
+            operation,
+            attempt,
+            nextAttempt: attempt + 1,
+            delayMs,
+            reason: error instanceof Error ? error.message : String(error),
+          },
+          "Retrying Stellar Horizon request"
+        );
+        options?.onRetry?.(error, attempt, delayMs);
+      },
+      delay: options?.delay ?? ((ms) => sleep(ms)),
+    }
+  );
+
+  if (outcome.ok) return outcome.value;
+  throw outcome.lastError;
+}
+
+/**
+ * Run a Horizon query read with bounded retries, exponential backoff, and
+ * jitter (issue #531 / #805).
+ */
 async function withQueryRetry<T>(
   operation: string,
   fn: () => Promise<T>
 ): Promise<T> {
-  const policy = readRetryPolicy();
-  const outcome = await withHorizonRetry(
-    () => withTimeout(operation, config.HORIZON_STATUS_TIMEOUT_MS, async () => fn()),
-    {
-      classify: classifyHorizonError,
-      policy,
-      onRetry: (_error, attempt, delayMs) => {
-        log.warn(
-          { provider: "horizon", operation, attempt, nextAttempt: attempt + 1, delayMs },
-          "Retrying Horizon request"
-        );
-      },
-      // withHorizonRetry computes the backoff itself; this injectable delay
-      // applies it, so the schedule is observable in tests.
-      delay: (ms) => sleep(ms),
-    }
-  );
-  if (outcome.ok) return outcome.value;
+  return withHorizonCallRetry(operation, async () => fn());
+}
 
-  // Keep the original provider error intact until the endpoint-specific
-  // boundary can distinguish 404s and normalize the remaining failures.
-  throw outcome.lastError;
+/**
+ * Load an account from Horizon with robust retry and timeout handling (#805).
+ */
+export async function loadAccountFromHorizon(
+  accountId: string,
+  options?: HorizonCallRetryOptions
+): Promise<Horizon.AccountResponse | null> {
+  try {
+    return await withHorizonCallRetry(
+      "Horizon.loadAccount",
+      async (srv) => srv.loadAccount(accountId),
+      options
+    );
+  } catch (error: unknown) {
+    const status = error && typeof error === "object" && "response" in error
+      ? (error as { response?: { status?: unknown } }).response?.status
+      : undefined;
+    if (status === 404 || (error instanceof Error && error.name === "NotFoundError")) {
+      return null;
+    }
+    throw normalizeHorizonFailure(error, "Horizon.loadAccount");
+  }
+}
+
+/**
+ * Fetch a ledger by sequence from Horizon with robust retry and timeout handling (#805).
+ */
+export async function fetchLedgerFromHorizon(
+  sequence: number,
+  options?: HorizonCallRetryOptions
+): Promise<Horizon.ServerApi.LedgerRecord | null> {
+  try {
+    return await withHorizonCallRetry(
+      "Horizon.fetchLedger",
+      async (srv) => (await srv.ledgers().ledger(sequence).call()) as unknown as Horizon.ServerApi.LedgerRecord,
+      options
+    );
+  } catch (error: unknown) {
+    const status = error && typeof error === "object" && "response" in error
+      ? (error as { response?: { status?: unknown } }).response?.status
+      : undefined;
+    if (status === 404 || (error instanceof Error && error.name === "NotFoundError")) {
+      return null;
+    }
+    throw normalizeHorizonFailure(error, "Horizon.fetchLedger");
+  }
 }
 
 function normalizeHorizonFailure(error: unknown, operation: string): Error {
