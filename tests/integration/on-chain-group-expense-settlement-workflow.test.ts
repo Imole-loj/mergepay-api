@@ -107,7 +107,7 @@ describe("On-Chain Group Expense Settlement Workflow Integration (#804)", () => 
     });
     expect(groupRes.statusCode).toBe(200);
     const groupData = groupRes.json();
-    groupId = groupData.id;
+    groupId = groupData.group?.id ?? groupData.id;
     createdGroupIds.push(groupId);
 
     // 2. Add members to group directly in database
@@ -164,10 +164,11 @@ describe("On-Chain Group Expense Settlement Workflow Integration (#804)", () => 
 
     expect(expenseRes.statusCode).toBe(200);
     const body = expenseRes.json();
-    expect(body.id).toBeDefined();
-    expect(body.amount).toBe("150.0000000");
-    expect(body.payer.id).toBe(payer.id);
-    expenseId = body.id;
+    const expense = body.expense ?? body;
+    expect(expense.id).toBeDefined();
+    expect(expense.amount).toBe("150.0000000");
+    expect(expense.payerId ?? expense.payer?.id).toBe(payer.id);
+    expenseId = expense.id;
 
     // Verify database rows directly
     const storedExpense = await prisma.expense.findUnique({
