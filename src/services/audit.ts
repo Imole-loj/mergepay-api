@@ -463,3 +463,46 @@ export async function auditTreasurySignerChange(
     await audit(auditPayload);
   }
 }
+
+export interface GroupAdminAuditParams {
+  actorId: string;
+  groupId: string;
+  action: string;
+  targetResourceId: string;
+  targetResourceType?: string;
+  actorPublicKey?: string | null;
+  metadata?: Record<string, unknown>;
+  outcome?: AuditOutcome;
+}
+
+/**
+ * Audit log helper for state-changing group admin actions (#801).
+ * Records administrator operations (member removal, settings updates, role changes)
+ * with sanitized metadata, executing without blocking the main request/response flow.
+ */
+export async function auditGroupAdminAction(
+  params: GroupAdminAuditParams,
+  tx?: Prisma.TransactionClient
+): Promise<void> {
+  const auditPayload: AuditParams = {
+    userId: params.actorId,
+    actorPublicKey: params.actorPublicKey ?? null,
+    groupId: params.groupId,
+    action: params.action,
+    entityType: params.targetResourceType ?? "group",
+    entityId: params.targetResourceId,
+    outcome: params.outcome ?? "success",
+    actorType: "user",
+    metadata: {
+      adminAction: true,
+      timestamp: new Date().toISOString(),
+      ...(sanitizeAuditMetadata(params.metadata ?? {}) as Record<string, unknown>),
+    },
+  };
+
+  if (tx) {
+    await auditTx(tx, auditPayload);
+  } else {
+    await audit(auditPayload);
+  }
+}

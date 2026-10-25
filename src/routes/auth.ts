@@ -4,7 +4,7 @@ import { config } from "../config";
 import { prisma } from "../db";
 import { Errors } from "../errors";
 import { authenticateChallenge, buildChallenge } from "../services/sep10";
-import { signToken, requireUser } from "../plugins/auth";
+import { signToken, requireUser, classifySep10Error } from "../plugins/auth";
 import { serializeUser } from "../serializers";
 import { audit } from "../services/audit";
 import { auditTrail } from "../middleware/audit";
@@ -137,9 +137,23 @@ export default async function authRoutes(app: FastifyInstance) {
         );
       }
 
-      const { account: publicKey, challengeHash } = await authenticateChallenge(
-        body.transaction
-      );
+      let verifiedChallenge: { account: string; challengeHash: string };
+      try {
+        verifiedChallenge = await authenticateChallenge(body.transaction);
+      } catch (err) {
+        const classified = classifySep10Error(err);
+        req.log.warn(
+          {
+            authFailure: "sep10_verify_failed",
+            errorCode: classified.code,
+            errorMessage: classified.message,
+            ip: req.ip,
+          },
+          "SEP-10 challenge verification failed"
+        );
+        throw classified;
+      }
+      const { account: publicKey, challengeHash } = verifiedChallenge;
 
       const user = await prisma.user.upsert({
         where: { stellarPublicKey: publicKey },

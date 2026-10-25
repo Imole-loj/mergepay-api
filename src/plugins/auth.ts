@@ -48,10 +48,16 @@ const authorizationHeaderSchema = z
  * or not a JWT), and from `verifyToken` TOKEN_EXPIRED / INVALID_TOKEN. All are
  * 401s carrying an RFC 6750 `WWW-Authenticate` challenge (set by the error
  * handler). The JWT library's own error text is never echoed back.
+ *
+ * Emits structured warning logs via pino without leaking sensitive tokens or keys (#802).
  */
 async function authenticate(req: FastifyRequest, _reply: FastifyReply) {
   const header = req.headers.authorization;
   if (header === undefined || header.trim() === "") {
+    req.log.warn(
+      { authFailure: "missing_token", ip: req.ip, path: req.url, method: req.method },
+      "Authentication failed: missing authorization header"
+    );
     throw Errors.missingToken();
   }
 
@@ -59,6 +65,10 @@ async function authenticate(req: FastifyRequest, _reply: FastifyReply) {
   if (header.startsWith("SEP10 ") || header.startsWith("sep10 ")) {
     const xdr = header.slice(6).trim();
     if (!xdr) {
+      req.log.warn(
+        { authFailure: "malformed_sep10_header", ip: req.ip, path: req.url, method: req.method },
+        "Authentication failed: empty SEP-10 transaction XDR in header"
+      );
       throw Errors.malformedToken("Authorization header must contain valid SEP-10 transaction XDR");
     }
     try {
@@ -68,20 +78,47 @@ async function authenticate(req: FastifyRequest, _reply: FastifyReply) {
       req.user = { id: verified.account, stellarPublicKey: verified.account };
       return;
     } catch (err) {
-      throw classifySep10Error(err);
+      const classified = classifySep10Error(err);
+      req.log.warn(
+        {
+          authFailure: "sep10_challenge_invalid",
+          errorCode: classified.code,
+          errorMessage: classified.message,
+          ip: req.ip,
+          path: req.url,
+          method: req.method,
+        },
+        "Authentication failed: invalid SEP-10 challenge"
+      );
+      throw classified;
     }
   }
 
   const parsedHeader = authorizationHeaderSchema.safeParse(header);
   if (!parsedHeader.success) {
+    req.log.warn(
+      { authFailure: "malformed_token", ip: req.ip, path: req.url, method: req.method },
+      "Authentication failed: malformed Bearer authorization header"
+    );
     throw Errors.malformedToken("Authorization header must be of the form 'Bearer <token>'");
   }
 
   try {
     req.user = verifyToken(parsedHeader.data.slice("Bearer ".length));
   } catch (err) {
-    if (err instanceof AppError) throw err;
-    throw Errors.invalidToken();
+    const classified = err instanceof AppError ? err : Errors.invalidToken();
+    req.log.warn(
+      {
+        authFailure: classified.code.toLowerCase(),
+        errorCode: classified.code,
+        errorMessage: classified.message,
+        ip: req.ip,
+        path: req.url,
+        method: req.method,
+      },
+      `Authentication failed: ${classified.code === "TOKEN_EXPIRED" ? "session token expired" : "invalid token"}`
+    );
+    throw classified;
   }
 }
 
@@ -103,6 +140,10 @@ async function authenticateSep10(req: FastifyRequest, _reply: FastifyReply) {
   }
 
   if (!xdr || typeof xdr !== "string" || xdr.trim() === "") {
+    req.log.warn(
+      { authFailure: "missing_challenge", ip: req.ip, path: req.url, method: req.method },
+      "SEP-10 authentication failed: missing challenge transaction"
+    );
     throw Errors.badRequest("missing_challenge", "SEP-10 challenge transaction is required");
   }
 
@@ -112,7 +153,19 @@ async function authenticateSep10(req: FastifyRequest, _reply: FastifyReply) {
     req.sep10Challenge = verified;
     req.user = { id: verified.account, stellarPublicKey: verified.account };
   } catch (err) {
-    throw classifySep10Error(err);
+    const classified = classifySep10Error(err);
+    req.log.warn(
+      {
+        authFailure: "sep10_challenge_invalid",
+        errorCode: classified.code,
+        errorMessage: classified.message,
+        ip: req.ip,
+        path: req.url,
+        method: req.method,
+      },
+      "SEP-10 authentication failed: invalid challenge transaction"
+    );
+    throw classified;
   }
 }
 

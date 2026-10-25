@@ -65,7 +65,13 @@ export type HorizonErrorCategory = "transient" | "indeterminate" | "permanent";
 export function classifyHorizonError(error: unknown): HorizonErrorCategory {
   // Typed errors from our timeout wrapper.
   if (error instanceof TimeoutError) return "indeterminate";
-  if (error instanceof TransportError) return "transient";
+  if (error instanceof TransportError) {
+    if (error.cause) {
+      const causeCat = classifyHorizonError(error.cause);
+      if (causeCat === "permanent") return "permanent";
+    }
+    return "transient";
+  }
 
   // AppError from the API layer — read the status code.
   if (error && typeof error === "object" && "statusCode" in error) {

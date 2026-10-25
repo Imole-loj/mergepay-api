@@ -4,7 +4,7 @@ import rateLimit from "@fastify/rate-limit";
 import { rateLimited, rateLimitPolicies } from "../../src/lib/rate-limit";
 import { AppError, ErrorCode } from "../../src/lib/errors";
 
-describe("Treasury Multisig Transaction Submission Rate Limiting (#879)", () => {
+describe("Treasury Multisig Transaction Submission Rate Limiting (#803 / #879)", () => {
   let app: FastifyInstance;
 
   const PROPOSE_LIMIT = 3;
@@ -79,6 +79,37 @@ describe("Treasury Multisig Transaction Submission Rate Limiting (#879)", () => 
       },
       async (_req, reply) => {
         return reply.send({ ok: true, type: "submission" });
+      }
+    );
+
+    // Treasury proposal signature fragment endpoint with rate limiting (#803)
+    app.post(
+      "/api/v1/treasury/proposals/:id/signatures",
+      {
+        preHandler: [app.authenticate as any],
+        config: {
+          rateLimitPolicy: "treasurySubmit",
+          rateLimit: {
+            max: SUBMIT_LIMIT,
+            timeWindow: 60000,
+            hook: "preHandler",
+            keyGenerator: (req: any) => `treasury.submit:user:${req.user?.id || req.ip}`,
+          },
+        },
+      },
+      async (_req, reply) => {
+        return reply.send({ ok: true, type: "signature_fragment" });
+      }
+    );
+
+    // General read endpoint without submission rate limiting (#803)
+    app.get(
+      "/api/v1/treasury/proposals/:id",
+      {
+        preHandler: [app.authenticate as any],
+      },
+      async (req, reply) => {
+        return reply.send({ ok: true, id: (req.params as any).id });
       }
     );
 
@@ -221,5 +252,35 @@ describe("Treasury Multisig Transaction Submission Rate Limiting (#879)", () => 
     });
     expect(signRes.statusCode).toBe(200);
     expect(Number(signRes.headers["x-ratelimit-remaining"])).toBe(SUBMIT_LIMIT - 1);
+  });
+
+  it("throttles /treasury/proposals/:id/signatures under treasurySubmit budget (#803)", async () => {
+    const headers = { authorization: "Bearer user_signatures_throttled" };
+    const url = "/api/v1/treasury/proposals/prop_999/signatures";
+
+    for (let i = 0; i < SUBMIT_LIMIT; i++) {
+      const res = await app.inject({ method: "POST", url, headers });
+      expect(res.statusCode).toBe(200);
+    }
+
+    const throttled = await app.inject({ method: "POST", url, headers });
+    expect(throttled.statusCode).toBe(429);
+    expect(throttled.headers["x-ratelimit-remaining"]).toBe("0");
+    expect(throttled.headers["retry-after"]).toBeDefined();
+  });
+
+  it("preserves access for general proposal read queries without exhausting submission limit (#803)", async () => {
+    const headers = { authorization: "Bearer user_read_unaffected" };
+
+    // Perform multiple reads
+    for (let i = 0; i < SUBMIT_LIMIT + 5; i++) {
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/v1/treasury/proposals/prop_read_1",
+        headers,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().ok).toBe(true);
+    }
   });
 });

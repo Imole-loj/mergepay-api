@@ -36,8 +36,8 @@ import {
 } from "../validations/sep24";
 import {
   sep24CallbackSchema,
-  validateSep24Deposit,
-  validateSep24Withdraw,
+  sep24DepositValidationMiddleware,
+  sep24WithdrawValidationMiddleware,
 } from "../schemas/sep24";
 import { openApiBody, openApiEnvelope, openApiIdParams } from "../lib/openapi";
 
@@ -162,7 +162,7 @@ export default async function anchorRoutes(app: FastifyInstance) {
   app.post(
     "/anchors/deposit",
     {
-      preHandler: [app.authenticate, validateSep24Deposit],
+      preHandler: [app.authenticate, sep24DepositValidationMiddleware],
       ...initLimit,
       schema: {
         tags: ["SEP-24"],
@@ -193,7 +193,7 @@ export default async function anchorRoutes(app: FastifyInstance) {
   app.post(
     "/anchors/withdraw",
     {
-      preHandler: [app.authenticate, validateSep24Withdraw],
+      preHandler: [app.authenticate, sep24WithdrawValidationMiddleware],
       ...initLimit,
       schema: {
         tags: ["SEP-24"],
