@@ -33,6 +33,7 @@ import {
   groupPrimaryAsset,
   loadGroupBalances,
 } from "../services/group-balances";
+import { removeGroupMember } from "../services/groups";
 import {
   buildPage,
   encodeCursor,
@@ -761,51 +762,10 @@ req.log.info({ userId: auth.id, groupId: created.id, action: "group.create" }, "
     const auth = requireUser(req);
     const { id, memberId } = groupMemberParamsSchema.parse(req.params);
 
-    if (memberId === auth.id) {
-      throw Errors.badRequest(
-        "SELF_REMOVE",
-        "Cannot remove yourself from the group; use the leave endpoint instead"
-      );
-    }
-
-    // The admin check, the target lookup, the last-admin guard, the delete,
-    // and the audit record all run in one transaction. Previously only the
-    // lookup onwards did: the `requireAdmin` call sat outside the transaction,
-    // so a caller demoted between their own check and the transaction could
-    // still land one last removal — the same race the role-change route below
-    // already closes for its own admin check.
-    await prisma.$transaction(async (tx) => {
-      await requireAdmin(id, auth.id, tx);
-      const target = await tx.groupMember.findUnique({
-        where: { groupId_userId: { groupId: id, userId: memberId } },
-      });
-      if (!target) {
-        throw Errors.notFound("Member not found in this group");
-      }
-
-      if (target.role === "admin") {
-        const adminCount = await tx.groupMember.count({
-          where: { groupId: id, role: "admin" },
-        });
-        if (adminCount <= 1) {
-          throw Errors.conflict(
-            "last_admin",
-            "Cannot remove the last admin from the group"
-          );
-        }
-      }
-
-      await tx.groupMember.delete({
-        where: { groupId_userId: { groupId: id, userId: memberId } },
-      });
-
-      await auditGroupMemberActionTx(tx, {
-        userId: auth.id,
-        groupId: id,
-        memberId,
-        action: AuditAction.GROUP_MEMBER_REMOVE,
-        metadata: { targetUserId: memberId, removedRole: target.role },
-      });
+    await removeGroupMember({
+      actorUserId: auth.id,
+      groupId: id,
+      targetUserId: memberId,
     });
 
     return { ok: true };
