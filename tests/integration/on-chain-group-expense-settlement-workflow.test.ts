@@ -218,7 +218,7 @@ describe("On-Chain Group Expense Settlement Workflow Integration (#804)", () => 
 
     // Verify memo matches settlement reference format
     expect(tx.memo.type).toBe("text");
-    expect(tx.memo.value).toContain("MP:");
+    expect(tx.memo.value ? tx.memo.value.toString() : '').toContain("MP:");
   });
 
   it("verifies settlement record state in database aligns with generated transaction", async () => {
