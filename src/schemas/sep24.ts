@@ -88,6 +88,10 @@ export const validateSep24Withdraw = validateRequest({
   body: sep24WithdrawRequestSchema,
 });
 
+/** Aliases for explicit middleware naming (#867). */
+export const sep24DepositValidationMiddleware = validateSep24Deposit;
+export const sep24WithdrawValidationMiddleware = validateSep24Withdraw;
+
 /**
  * Dedicated schema for SEP-24 deposit initiation parameters.
  */
