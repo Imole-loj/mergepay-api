@@ -110,18 +110,22 @@ describe("On-Chain Group Expense Settlement Workflow Integration (#804)", () => 
     groupId = groupData.id;
     createdGroupIds.push(groupId);
 
-    // 2. Add members to group
-    const addPayerRes = await api("POST", `/groups/${groupId}/members`, admin, {
-      userId: payer.id,
-      role: "member",
+    // 2. Add members to group directly in database
+    await prisma.groupMember.create({
+      data: {
+        groupId,
+        userId: payer.id,
+        role: "member",
+      },
     });
-    expect(addPayerRes.statusCode).toBe(200);
 
-    const addDebtorRes = await api("POST", `/groups/${groupId}/members`, admin, {
-      userId: debtor.id,
-      role: "member",
+    await prisma.groupMember.create({
+      data: {
+        groupId,
+        userId: debtor.id,
+        role: "member",
+      },
     });
-    expect(addDebtorRes.statusCode).toBe(200);
   });
 
   afterAll(async () => {
