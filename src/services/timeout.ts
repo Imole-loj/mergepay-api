@@ -97,8 +97,12 @@ export async function withTimeout<T>(
           reject(new TimeoutError(operation, timeoutMs));
           return;
         }
-        // Re-throw AppError instances as-is (they are intentional business errors)
-        if (err && typeof err === "object" && "statusCode" in err && "code" in err) {
+        // Re-throw AppError instances and Horizon response errors as-is
+        if (
+          err &&
+          typeof err === "object" &&
+          (("statusCode" in err && "code" in err) || "response" in err || "status" in err)
+        ) {
           reject(err);
           return;
         }

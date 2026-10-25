@@ -1,13 +1,16 @@
 /**
- * Group membership and admin permission middleware guards for restricted routes (#549).
+ * Group membership and admin permission middleware guards for restricted routes (#549, #808).
  *
  * Implements reusable Fastify preHandler middleware guards to enforce group
- * membership and admin privileges consistently across group management and treasury endpoints.
+ * membership and admin privileges consistently across group management, treasury,
+ * and expense mutation endpoints.
  *
  * Guards inspect request parameters (e.g. `id` or `groupId`) and authenticated user context
  * to verify database membership and roles:
  *   - requireGroupMember / requireMembershipGuard: ensures the caller is at least a member (or admin).
  *   - requireGroupAdmin / requireAdminGuard: ensures the caller holds the admin role.
+ *   - requireExpensePayerOrAdmin / requireExpenseMutationRole: ensures the caller is either
+ *     the creator/payer of the expense or an administrator of the owning group.
  *
  * Both accept `active: true`, which additionally rejects an archived group
  * (issue #648). Mutating group management routes set it; reads, leaving, and
@@ -16,19 +19,25 @@
  *
  * Authorization failures return:
  *   - 401 Unauthorized when unauthenticated
- *   - 403 Forbidden when caller is not a member or lacks admin privileges
- *   - 404 Not Found when the target group does not exist
+ *   - 403 Forbidden when caller is not a member or lacks required privileges
+ *   - 404 Not Found when the target group or expense does not exist
  */
-import type { preHandlerAsyncHookHandler } from "fastify";
+import type { FastifyRequest, preHandlerAsyncHookHandler } from "fastify";
+import { prisma } from "../db";
+import { Errors } from "../errors";
+import { requireUser } from "../plugins/auth";
 import {
   requireGroupRole,
   groupMembership,
+  GROUP_GUARD,
   type GroupRole,
   type GroupIdParam,
 } from "../plugins/group-access";
 import {
   requireMembership,
   requireAdmin,
+  requireActiveMembership,
+  requireActiveAdmin,
   type MembershipContext,
 } from "../services/access";
 
@@ -76,9 +85,64 @@ export function requireGroupAdmin(
   });
 }
 
+export interface ExpenseGuardOptions {
+  /** The path parameter name containing the expense ID (default: "id") */
+  param?: "id" | "expenseId";
+  /** Require the owning group to be active (not archived). Default: true */
+  active?: boolean;
+}
+
+/**
+ * Fastify preHandler middleware guard enforcing that the authenticated caller
+ * is either the payer (creator) of the expense or an administrator of the group owning the expense (#808).
+ *
+ * Ensures unauthorized users (non-members and non-payer/non-admin members) are rejected with
+ * 403 Forbidden before reaching the route handler or opening transactions.
+ */
+export function requireExpensePayerOrAdmin(
+  options: ExpenseGuardOptions = {}
+): preHandlerAsyncHookHandler {
+  const param = options.param ?? "id";
+  const active = options.active !== false;
+
+  const guard: preHandlerAsyncHookHandler = async function expensePayerOrAdminGuard(req: FastifyRequest) {
+    const auth = requireUser(req);
+    const params = (req.params ?? {}) as Record<string, string>;
+    const expenseId = params[param];
+    if (!expenseId) {
+      throw Errors.badRequest("MISSING_ID", "Expense ID is required");
+    }
+
+    const expense = await prisma.expense.findUnique({
+      where: { id: expenseId },
+      select: { id: true, groupId: true, payerUserId: true },
+    });
+    if (!expense) {
+      throw Errors.notFound("Expense not found");
+    }
+
+    const membership = active
+      ? await requireActiveMembership(expense.groupId, auth.id)
+      : await requireMembership(expense.groupId, auth.id);
+
+    req.groupMembership = membership;
+
+    const isPayer = expense.payerUserId === auth.id;
+    const isAdmin = membership.role === "admin";
+
+    if (!isPayer && !isAdmin) {
+      throw Errors.forbidden("Only the payer or an admin can modify or delete this expense");
+    }
+  };
+  (guard as any)[GROUP_GUARD] = true;
+  return guard;
+}
+
 // Aliases for explicit guard naming
 export const requireMembershipGuard = requireGroupMember;
 export const requireAdminGuard = requireGroupAdmin;
+export const requireExpenseMutationRole = requireExpensePayerOrAdmin;
+export const requireExpenseModificationGuard = requireExpensePayerOrAdmin;
 
 export {
   requireGroupRole,

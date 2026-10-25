@@ -110,7 +110,7 @@ export async function withHorizonFailover<T>(operation: (horizon: Horizon.Server
       const next = servers().findIndex((_, i) => !tried.has(i) && (failedUntil.get(i) ?? 0) <= Date.now());
       if (next < 0) break;
       activeServer = next;
-      console.warn(`[stellar] Horizon endpoint failed; rotating to endpoint ${next + 1}`);
+      log.warn({ provider: "horizon", fromEndpoint: index, toEndpoint: next }, "Horizon endpoint failed; rotating to next endpoint");
     }
   }
   throw lastError;
@@ -528,7 +528,11 @@ export const stellar = {
   async submitSigned(signedXdr: string): Promise<string> {
     const tx = new Transaction(signedXdr, config.networkPassphrase);
     try {
-      const res = await withHorizonFailover((horizon) => horizon.submitTransaction(tx));
+      const res = await withTimeout(
+        "Horizon.submitTransaction",
+        config.HORIZON_SUBMIT_TIMEOUT_MS,
+        async () => withHorizonFailover((horizon) => horizon.submitTransaction(tx))
+      );
       return res.hash;
     } catch (e: unknown) {
       // Normalize into a categorized ProviderError exactly like the worker's
@@ -635,7 +639,11 @@ export function parseSignedPaymentXdr(
 
 async function submitToHorizon(tx: Transaction): Promise<string> {
   try {
-    const res = await withHorizonFailover((horizon) => horizon.submitTransaction(tx));
+    const res = await withTimeout(
+      "Horizon.submitTransaction",
+      config.HORIZON_SUBMIT_TIMEOUT_MS,
+      async () => withHorizonFailover((horizon) => horizon.submitTransaction(tx))
+    );
     return res.hash;
   } catch (e: unknown) {
     // Route every Horizon rejection through the shared mapping (#810) so the

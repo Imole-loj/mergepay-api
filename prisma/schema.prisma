@@ -77,6 +77,7 @@ model GroupMember {
   @@index([userId])
   @@index([groupId])
   @@index([role])
+  @@index([groupId, role])
   @@map("group_members")
 }
 model Expense {
@@ -99,6 +100,8 @@ model Expense {
 
   @@index([groupId, createdAt, id])
   @@index([payerUserId])
+  @@index([groupId, payerUserId])
+  @@index([groupId, assetCode])
   @@map("expenses")
 }
 
@@ -117,6 +120,7 @@ model ExpenseShare {
   @@index([userId])
   @@index([expenseId, userId])
   @@index([status, expenseId])
+  @@index([userId, status])
   @@map("expense_shares")
 }
 
@@ -191,6 +195,8 @@ model Settlement {
   @@index([deadLetteredAt]) // For finding jobs the worker gave up on
   @@index([expiresAt])
   @@index([expenseShareId])
+  @@index([groupId, status])
+  @@index([groupId, createdAt])
   @@unique([expenseShareId, idempotencyKey], name: "settlement_expense_share_idempotency")
   @@map("settlements")
 }

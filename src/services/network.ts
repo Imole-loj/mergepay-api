@@ -9,6 +9,7 @@
 import { Horizon } from "@stellar/stellar-sdk";
 import { config } from "../config";
 import { logRetryAttempt, withRetry } from "./retry";
+import { toProviderError } from "./timeout";
 
 /**
  * Fee statistics from Horizon's `/fee_stats` endpoint, in stroops.
@@ -68,30 +69,38 @@ function normalize(raw: Record<string, unknown>): FeeStats {
  * window rather than once per request.
  */
 async function fetchFeeStats(): Promise<FeeStats> {
-  const response = await withRetry(
-    {
+  try {
+    const response = await withRetry(
+      {
+        operation: "Horizon.feeStats",
+        timeoutMs: config.HORIZON_FEE_TIMEOUT_MS,
+        onAttemptFailed: (entry) =>
+          logRetryAttempt(
+            {
+              warn: (obj, msg) => console.warn(`[network] ${msg}`, JSON.stringify(obj)),
+            },
+            entry
+          ),
+      },
+      async () => {
+        // Horizon.Server.feeStats doesn't accept AbortSignal directly, but the
+        // wrapper still fires and rejects the promise on timeout.
+        return horizon().feeStats();
+      }
+    );
+    const stats = normalize(response as unknown as Record<string, unknown>);
+    cached = {
+      stats,
+      expiresAt: Date.now() + config.FEE_CACHE_TTL * 1000,
+    };
+    return stats;
+  } catch (error: unknown) {
+    throw toProviderError(error, {
+      provider: "horizon",
       operation: "Horizon.feeStats",
-      timeoutMs: config.HORIZON_FEE_TIMEOUT_MS,
-      onAttemptFailed: (entry) =>
-        logRetryAttempt(
-          {
-            warn: (obj, msg) => console.warn(`[network] ${msg}`, JSON.stringify(obj)),
-          },
-          entry
-        ),
-    },
-    async () => {
-      // Horizon.Server.feeStats doesn't accept AbortSignal directly, but the
-      // wrapper still fires and rejects the promise on timeout.
-      return horizon().feeStats();
-    }
-  );
-  const stats = normalize(response as unknown as Record<string, unknown>);
-  cached = {
-    stats,
-    expiresAt: Date.now() + config.FEE_CACHE_TTL * 1000,
-  };
-  return stats;
+      fallbackMessage: "Stellar fee stats lookup failed",
+    });
+  }
 }
 
 /**
