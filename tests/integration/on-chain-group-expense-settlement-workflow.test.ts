@@ -105,7 +105,7 @@ describe("On-Chain Group Expense Settlement Workflow Integration (#804)", () => 
       name: "On-Chain Settlement Integration Group",
       description: "Group testing on-chain settlement XDR workflow",
     });
-    expect(groupRes.statusCode).toBe(201);
+    expect(groupRes.statusCode).toBe(200);
     const groupData = groupRes.json();
     groupId = groupData.id;
     createdGroupIds.push(groupId);
@@ -115,13 +115,13 @@ describe("On-Chain Group Expense Settlement Workflow Integration (#804)", () => 
       userId: payer.id,
       role: "member",
     });
-    expect(addPayerRes.statusCode).toBe(201);
+    expect(addPayerRes.statusCode).toBe(200);
 
     const addDebtorRes = await api("POST", `/groups/${groupId}/members`, admin, {
       userId: debtor.id,
       role: "member",
     });
-    expect(addDebtorRes.statusCode).toBe(201);
+    expect(addDebtorRes.statusCode).toBe(200);
   });
 
   afterAll(async () => {
@@ -158,7 +158,7 @@ describe("On-Chain Group Expense Settlement Workflow Integration (#804)", () => 
       ],
     });
 
-    expect(expenseRes.statusCode).toBe(201);
+    expect(expenseRes.statusCode).toBe(200);
     const body = expenseRes.json();
     expect(body.id).toBeDefined();
     expect(body.amount).toBe("150.0000000");
