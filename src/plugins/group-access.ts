@@ -70,13 +70,18 @@ export type GroupIdParam = "id" | "groupId";
 /** Ids are cuids; 64 is the ceiling the routes already validate against. */
 const groupIdSchema = z.string().min(1).max(64);
 
-/** Marks a preHandler produced by `requireGroupRole`, so the plugin can order it. */
-const GROUP_GUARD = Symbol("mergepay.groupGuard");
+/** Marks a preHandler produced by group/expense guards, so the plugin can order it. */
+export const GROUP_GUARD = Symbol.for("mergepay.groupGuard");
 
 type MarkedGuard = preHandlerAsyncHookHandler & { [GROUP_GUARD]?: true };
 
-function isGroupGuard(fn: unknown): boolean {
-  return typeof fn === "function" && (fn as MarkedGuard)[GROUP_GUARD] === true;
+export function isGroupGuard(fn: unknown): boolean {
+  if (typeof fn !== "function") return false;
+  return (
+    (fn as any)[GROUP_GUARD] === true ||
+    fn.name === "groupRoleGuard" ||
+    fn.name === "expensePayerOrAdminGuard"
+  );
 }
 
 /**

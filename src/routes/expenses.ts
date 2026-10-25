@@ -13,6 +13,7 @@ import { Errors } from "../errors";
 import { requireUser } from "../plugins/auth";
 import { requireActiveMembership, requireMembership } from "../services/access";
 import { requireGroupRole } from "../plugins/group-access";
+import { requireExpensePayerOrAdmin } from "../middleware/group-guard";
 import {
   computeShares,
   isSettlementEngineError,
@@ -281,7 +282,7 @@ req.log.info({ userId: auth.id, groupId, expenseId: created.id, action: "expense
     "/expenses/:id",
     {
       ...mutateLimit,
-      preHandler: requireGroupRole("member", { param: "id", fromExpense: true, active: true }),
+      preHandler: requireExpensePayerOrAdmin({ param: "id", active: true }),
       schema: {
         tags: ["Expenses"],
         summary: "Update an expense",
@@ -341,7 +342,7 @@ req.log.info({ userId: auth.id, groupId, expenseId: created.id, action: "expense
     "/expenses/:id",
     {
       ...mutateLimit,
-      preHandler: requireGroupRole("member", { param: "id", fromExpense: true, active: true }),
+      preHandler: requireExpensePayerOrAdmin({ param: "id", active: true }),
       schema: {
         tags: ["Expenses"],
         summary: "Delete an expense",

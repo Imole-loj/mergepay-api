@@ -178,6 +178,7 @@ export default async function settlementRoutes(app: FastifyInstance) {
     "/expenses/:id/settle",
     {
       ...createLimit,
+      preHandler: requireGroupRole("member", { param: "id", fromExpense: true, active: true }),
       schema: {
         tags: ["Settlements"],
         summary: "Settle your share of an expense",
